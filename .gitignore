@@ -94,3 +94,4 @@ ENV/
 *.txt
 *.pkl
 *.swp
+.idea/
