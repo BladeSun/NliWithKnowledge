@@ -12,18 +12,18 @@ def fopen(filename, mode='r'):
 
 class TextIterator:
     """Simple Bitext iterator."""
-    def __init__(self, source, target,
-                 source_dict, target_dict,
+    def __init__(self, source, target, label,
+                 all_dict,
                  batch_size=128,
                  maxlen=100,
                  n_words_source=-1,
                  n_words_target=-1):
         self.source = fopen(source, 'r')
         self.target = fopen(target, 'r')
-        with open(source_dict, 'rb') as f:
-            self.source_dict = pkl.load(f)
-        with open(target_dict, 'rb') as f:
-            self.target_dict = pkl.load(f)
+        self.label = fopen(label, 'r')
+        with open(all_dict, 'rb') as f:
+            self.all_dict = pkl.load(f)
+        self.label_dict = {'entailment': 0, 'neutral': 1, 'contradiction': 2}
 
         self.batch_size = batch_size
         self.maxlen = maxlen
@@ -33,6 +33,7 @@ class TextIterator:
 
         self.source_buffer = []
         self.target_buffer = []
+        self.label_buffer = []
         self.k = batch_size * 20
 
         self.end_of_data = False
@@ -43,6 +44,7 @@ class TextIterator:
     def reset(self):
         self.source.seek(0)
         self.target.seek(0)
+        self.label.seek(0)
 
     def next(self):
         if self.end_of_data:
@@ -52,6 +54,8 @@ class TextIterator:
 
         source = []
         target = []
+        label = []
+
 
         # fill buffer, if it's empty
         assert len(self.source_buffer) == len(self.target_buffer), 'Buffer size mismatch!'
@@ -64,9 +68,13 @@ class TextIterator:
                 tt = self.target.readline()
                 if tt == "":
                     break
+                ll = self.label.readline()
+                if ll == "":
+                    break
 
                 self.source_buffer.append(ss.strip().split())
                 self.target_buffer.append(tt.strip().split())
+                self.label_buffer.append(ll.strip().split())
 
             # sort by target buffer
             tlen = numpy.array([len(t) for t in self.target_buffer])
@@ -74,11 +82,13 @@ class TextIterator:
 
             _sbuf = [self.source_buffer[i] for i in tidx]
             _tbuf = [self.target_buffer[i] for i in tidx]
+            _lbuf = [self.label_buffer[i] for i in tidx]
 
             self.source_buffer = _sbuf
             self.target_buffer = _tbuf
+            self.label_buffer = _lbuf
 
-        if len(self.source_buffer) == 0 or len(self.target_buffer) == 0:
+        if len(self.source_buffer) == 0 or len(self.target_buffer) == 0 or len(self.label_buffer) == 0:
             self.end_of_data = False
             self.reset()
             raise StopIteration
@@ -93,33 +103,37 @@ class TextIterator:
                     ss = self.source_buffer.pop()
                 except IndexError:
                     break
-                ss = [self.source_dict[w] if w in self.source_dict else 1
+                ss = [self.all_dict[w] if w in self.all_dict else 1
                       for w in ss]
                 if self.n_words_source > 0:
                     ss = [w if w < self.n_words_source else 1 for w in ss]
 
                 # read from source file and map to word index
                 tt = self.target_buffer.pop()
-                tt = [self.target_dict[w] if w in self.target_dict else 1
+                tt = [self.all_dict[w] if w in self.all_dict else 1
                       for w in tt]
                 if self.n_words_target > 0:
                     tt = [w if w < self.n_words_target else 1 for w in tt]
+                # get label
+                ll = self.label_dict[self.label_buffer.pop()[0]]
 
                 if len(ss) > self.maxlen and len(tt) > self.maxlen:
                     continue
 
                 source.append(ss)
                 target.append(tt)
+                label.append(ll)
 
                 if len(source) >= self.batch_size or \
-                        len(target) >= self.batch_size:
+                        len(target) >= self.batch_size or \
+                        len(label) >= self.batch_size :
                     break
         except IOError:
             self.end_of_data = True
 
-        if len(source) <= 0 or len(target) <= 0:
+        if len(source) <= 0 or len(target) <= 0 or len(target) <= 0:
             self.end_of_data = False
             self.reset()
             raise StopIteration
 
-        return source, target
+        return source, target, label
