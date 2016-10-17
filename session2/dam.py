@@ -80,7 +80,7 @@ def load_params(path, params):
 layers = {'ff': ('param_init_fflayer', 'fflayer'),
           'gru': ('param_init_gru', 'gru_layer'),
           'gru_cond': ('param_init_gru_cond', 'gru_cond_layer'),
-          'funcf': ('param_init_funcf_layer', 'funcf_layer'),
+          'funcf_layer': ('param_init_funcf_layer', 'funcf_layer'),
           }
 
 
@@ -627,7 +627,7 @@ def build_dam(tparams, options):
     y = tensor.matrix('y', dtype='int64')
     y_mask = tensor.matrix('y_mask', dtype='float32')
     all_embs = tensor.matrix('emb', dtype='float32')
-    label = tensor.vector('label', dtype='float32')
+    label = tensor.vector('label', dtype='int64')
 
     n_timesteps_h = x.shape[0]
     n_timesteps_t = y.shape[0]
@@ -641,38 +641,37 @@ def build_dam(tparams, options):
     emb_t = emb_t.reshape([n_timesteps_t, n_samples, options['dim_word']])
     emb_t = emb_t.swapaxes(0, 1)
 
-    proj_h = get_layer('funcf_layer')[1](options, emb_h, tparams,
+    proj_h = get_layer('funcf_layer')[1](tparams, emb_h, options,
                                          prefix='funcf')
-    proj_t = get_layer('funcf_layer')[1](options, emb_t, tparams,
+    proj_t = get_layer('funcf_layer')[1](tparams, emb_t, options,
                                          prefix='funcf')
-    e_ij = tensor.batched_dot(proj_h, proj_t)
-    walpha = tensor.nnet.softmax(e_ij.reshape(n_timesteps_h * n_samples, n_timesteps_t))
-    walpha = walpha.swapaxes(1, 2) * x_mask[0, 0, None]
-    walpha = walpha.swapaxes(1, 2)
-    alpha = tensor.batched_dot(e_ij.reshape(n_samples, n_timesteps_h, n_timesteps_t), emb_t)
+    e_ij = tensor.batched_dot(proj_h, proj_t.swapaxes(1,2))
+    walpha = tensor.nnet.softmax(e_ij.reshape([n_timesteps_h * n_samples, n_timesteps_t]))
+    walpha = walpha.swapaxes(0, 1) * x_mask[0, 0, None]
+    walpha = walpha.swapaxes(0, 1)
+    alpha = tensor.batched_dot(walpha.reshape([n_samples, n_timesteps_h, n_timesteps_t]), emb_t)
 
-    wbeta = tensor.nnet.softmax(e_ij.swapaxes(1, 2).reshape(n_timesteps_t * n_samples, n_timesteps_h))
-    wbeta = wbeta.swapaxes(1, 2) * y_mask[0, 0, None]
-    wbeta = wbeta.swapaxes(1, 2)
-    beta = tensor.batched_dot(e_ij.reshape(n_samples, n_timesteps_t, n_timesteps_h), emb_h)
-
-    v1 = get_layer('funcf_layer')[1](options, concatenate([alpha, emb_h], axis=2), tparams,
+    wbeta = tensor.nnet.softmax(e_ij.swapaxes(1, 2).reshape([n_timesteps_t * n_samples, n_timesteps_h]))
+    wbeta = wbeta.swapaxes(0, 1) * y_mask[0, 0, None]
+    wbeta = wbeta.swapaxes(0, 1)
+    beta = tensor.batched_dot(wbeta.reshape([n_samples, n_timesteps_t, n_timesteps_h]), emb_h)
+    v1 = get_layer('funcf_layer')[1](tparams, concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
+    #v1 = get_layer('funcf_layer')[1](tparams, theano.tensor.concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
+    v1 = v1.sum(1)
+    v2 = get_layer('funcf_layer')[1](tparams, concatenate([beta, emb_t], axis=2), options,
                                      prefix='funcG')
-    v1 = v1.sum(0)
-    v2 = get_layer('funcf_layer')[1](options, concatenate([beta, emb_t], axis=2), tparams,
-                                     prefix='funcG')
-    v2 = v2.sum(0)
+    v2 = v2.sum(1)
 
-    logit = get_layer('ff')[1](options, concatenate([v1, v2], axis=1), tparams,
-                               prefix='ff_logit',
-                               )
+    #logit = get_layer('ff')[1](tparams, concatenate([v1, v2], axis=1), options, prefix='ff_logit')
+    logit = get_layer('ff')[1](tparams, theano.tensor.concatenate([v1, v2], axis=1), options, prefix='ff_logit')
 
     logit_shp = logit.shape
-    probs = tensor.nnet.softmax(logit.reshape([logit_shp[0] * logit_shp[1],
-                                               logit_shp[2]]))
+    #probs = tensor.nnet.softmax(logit.reshape([logit_shp[0] * logit_shp[1], logit_shp[2]]))
+    probs = tensor.nnet.softmax(logit)
 
     # cost
     label_idx = tensor.arange(label.shape[0]) * options['class_num'] + label
+    #label_idx = tensor.arange(label.shape[0]) * options['class_num']
     cost = -tensor.log(probs.flatten()[label_idx])
 
     return trng, use_noise, x, x_mask, y, y_mask, label, all_embs, cost
@@ -1099,6 +1098,7 @@ def sgd(lr, tparams, grads, x, mask, y, cost):
 
 def train(dim_word=100,  # word vector dimensionality
           dim=1000,  # the number of LSTM units
+          class_num=3,
           encoder='gru',
           decoder='gru_cond',
           patience=10,  # early stopping patience
@@ -1150,6 +1150,11 @@ def train(dim_word=100,  # word vector dimensionality
         worddicts_r[ii] = dict()
         for kk, vv in worddicts[ii].iteritems():
             worddicts_r[ii][vv] = kk
+
+    print 'Loading embedings ...'
+    with open(embedings[0], 'rb') as f:
+        pretrained_embs = pkl.load(f)
+    print 'Done'
 
     # reload options
     if reload_ and os.path.exists(saveto):
@@ -1288,7 +1293,7 @@ def train(dim_word=100,  # word vector dimensionality
             ud_start = time.time()
 
             # compute cost, grads and copy grads to shared variables
-            cost = f_grad_shared(x, x_mask, y, y_mask, label, all_embs)
+            cost = f_grad_shared(x, x_mask, y, y_mask, label, pretrained_embs)
 
             # do the update on parameters
             f_update(lrate)
