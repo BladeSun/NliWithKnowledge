@@ -1128,6 +1128,8 @@ def train(dim_word=100,  # word vector dimensionality
               '../data/test_label.tok'],
           dictionaries=[
               '../data/snli_dict.pkl'],
+          embedings=[
+              '../data/snli_emb_300.pkl'],
           use_dropout=False,
           reload_=False,
           overwrite=False):
