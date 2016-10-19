@@ -80,7 +80,7 @@ def load_params(path, params):
 layers = {'ff': ('param_init_fflayer', 'fflayer'),
           'gru': ('param_init_gru', 'gru_layer'),
           'gru_cond': ('param_init_gru_cond', 'gru_cond_layer'),
-          'funcf': ('param_init_funcf_layer', 'funcf_layer'),
+          'funcf_layer': ('param_init_funcf_layer', 'funcf_layer'),
           }
 
 
@@ -186,7 +186,7 @@ def prepare_data(seqs_x, seqs_y, label, maxlen=None, n_words_src=30000,
         label = new_label
 
         if len(lengths_x) < 1 or len(lengths_y) < 1:
-            return None, None, None, None
+            return None, None, None, None, None
 
     n_samples = len(seqs_x)
     maxlen_x = numpy.max(lengths_x) + 1
@@ -627,7 +627,7 @@ def build_dam(tparams, options):
     y = tensor.matrix('y', dtype='int64')
     y_mask = tensor.matrix('y_mask', dtype='float32')
     all_embs = tensor.matrix('emb', dtype='float32')
-    label = tensor.vector('label', dtype='float32')
+    label = tensor.vector('label', dtype='int64')
 
     n_timesteps_h = x.shape[0]
     n_timesteps_t = y.shape[0]
@@ -641,41 +641,41 @@ def build_dam(tparams, options):
     emb_t = emb_t.reshape([n_timesteps_t, n_samples, options['dim_word']])
     emb_t = emb_t.swapaxes(0, 1)
 
-    proj_h = get_layer('funcf_layer')[1](options, emb_h, tparams,
+    proj_h = get_layer('funcf_layer')[1](tparams, emb_h, options,
                                          prefix='funcf')
-    proj_t = get_layer('funcf_layer')[1](options, emb_t, tparams,
+    proj_t = get_layer('funcf_layer')[1](tparams, emb_t, options,
                                          prefix='funcf')
-    e_ij = tensor.batched_dot(proj_h, proj_t)
-    walpha = tensor.nnet.softmax(e_ij.reshape(n_timesteps_h * n_samples, n_timesteps_t))
-    walpha = walpha.swapaxes(1, 2) * x_mask[0, 0, None]
-    walpha = walpha.swapaxes(1, 2)
-    alpha = tensor.batched_dot(e_ij.reshape(n_samples, n_timesteps_h, n_timesteps_t), emb_t)
+    e_ij = tensor.batched_dot(proj_h, proj_t.swapaxes(1,2))
+    walpha = tensor.nnet.softmax(e_ij.reshape([n_timesteps_h * n_samples, n_timesteps_t]))
+    walpha = walpha.swapaxes(0, 1) * x_mask[0, 0, None]
+    walpha = walpha.swapaxes(0, 1)
+    alpha = tensor.batched_dot(walpha.reshape([n_samples, n_timesteps_h, n_timesteps_t]), emb_t)
 
-    wbeta = tensor.nnet.softmax(e_ij.swapaxes(1, 2).reshape(n_timesteps_t * n_samples, n_timesteps_h))
-    wbeta = wbeta.swapaxes(1, 2) * y_mask[0, 0, None]
-    wbeta = wbeta.swapaxes(1, 2)
-    beta = tensor.batched_dot(e_ij.reshape(n_samples, n_timesteps_t, n_timesteps_h), emb_h)
-
-    v1 = get_layer('funcf_layer')[1](options, concatenate([alpha, emb_h], axis=2), tparams,
+    wbeta = tensor.nnet.softmax(e_ij.swapaxes(1, 2).reshape([n_timesteps_t * n_samples, n_timesteps_h]))
+    wbeta = wbeta.swapaxes(0, 1) * y_mask[0, 0, None]
+    wbeta = wbeta.swapaxes(0, 1)
+    beta = tensor.batched_dot(wbeta.reshape([n_samples, n_timesteps_t, n_timesteps_h]), emb_h)
+    v1 = get_layer('funcf_layer')[1](tparams, concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
+    #v1 = get_layer('funcf_layer')[1](tparams, theano.tensor.concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
+    v1 = v1.sum(1)
+    v2 = get_layer('funcf_layer')[1](tparams, concatenate([beta, emb_t], axis=2), options,
                                      prefix='funcG')
-    v1 = v1.sum(0)
-    v2 = get_layer('funcf_layer')[1](options, concatenate([beta, emb_t], axis=2), tparams,
-                                     prefix='funcG')
-    v2 = v2.sum(0)
+    v2 = v2.sum(1)
 
-    logit = get_layer('ff')[1](options, concatenate([v1, v2], axis=1), tparams,
-                               prefix='ff_logit',
-                               )
+    #logit = get_layer('ff')[1](tparams, concatenate([v1, v2], axis=1), options, prefix='ff_logit')
+    logit = get_layer('ff')[1](tparams, theano.tensor.concatenate([v1, v2], axis=1), options, prefix='ff_logit')
 
     logit_shp = logit.shape
-    probs = tensor.nnet.softmax(logit.reshape([logit_shp[0] * logit_shp[1],
-                                               logit_shp[2]]))
+    #probs = tensor.nnet.softmax(logit.reshape([logit_shp[0] * logit_shp[1], logit_shp[2]]))
+    probs = tensor.nnet.softmax(logit)
+    predict_label = tensor.argmax(probs, 1)
 
     # cost
     label_idx = tensor.arange(label.shape[0]) * options['class_num'] + label
+    #label_idx = tensor.arange(label.shape[0]) * options['class_num']
     cost = -tensor.log(probs.flatten()[label_idx])
 
-    return trng, use_noise, x, x_mask, y, y_mask, label, all_embs, cost
+    return trng, use_noise, x, x_mask, y, y_mask, label, all_embs, predict_label, cost
     # cost = cost.reshape([y.shape[0], y.shape[1]])
     # cost = (cost * y_mask).sum(0)
 
@@ -960,19 +960,22 @@ def gen_sample(tparams, f_init, f_next, x, options, trng=None, k=1, maxlen=30,
 
 
 # calculate the log probablities on a given corpus using translation model
-def pred_probs(f_log_probs, prepare_data, options, iterator, verbose=True):
+def pred_probs(f_log_probs, prepare_data, options, iterator, embs, verbose=False):
     probs = []
 
     n_done = 0
+    correct_num = 0
+    all_num = 0.
 
-    for x, y in iterator:
+    for x, y, label in iterator:
         n_done += len(x)
+        all_num += len(label)
 
-        x, x_mask, y, y_mask = prepare_data(x, y,
+        x, x_mask, y, y_mask, label = prepare_data(x, y, label,
                                             n_words_src=options['n_words_src'],
                                             n_words=options['n_words'])
 
-        pprobs = f_log_probs(x, x_mask, y, y_mask)
+        pprobs, predict_label = f_log_probs(x, x_mask, y, y_mask, label, embs)
         for pp in pprobs:
             probs.append(pp)
 
@@ -982,7 +985,10 @@ def pred_probs(f_log_probs, prepare_data, options, iterator, verbose=True):
         if verbose:
             print >> sys.stderr, '%d samples computed' % (n_done)
 
-    return numpy.array(probs)
+        correct_num += (label == predict_label).sum() 
+
+    print 'correct ', correct_num, 'all ', all_num 
+    return numpy.array(probs), correct_num/all_num
 
 
 # optimizers
@@ -1019,6 +1025,7 @@ def adam(lr, tparams, grads, inp, cost, beta1=0.9, beta2=0.999, e=1e-8):
 
 
 def adadelta(lr, tparams, grads, inp, cost):
+    print 'adadelta'
     zipped_grads = [theano.shared(p.get_value() * numpy.float32(0.),
                                   name='%s_grad' % k)
                     for k, p in tparams.iteritems()]
@@ -1082,13 +1089,13 @@ def rmsprop(lr, tparams, grads, inp, cost):
     return f_grad_shared, f_update
 
 
-def sgd(lr, tparams, grads, x, mask, y, cost):
+def sgd(lr, tparams, grads, inp, cost):
     gshared = [theano.shared(p.get_value() * 0.,
                              name='%s_grad' % k)
                for k, p in tparams.iteritems()]
     gsup = [(gs, g) for gs, g in zip(gshared, grads)]
 
-    f_grad_shared = theano.function([x, mask, y], cost, updates=gsup,
+    f_grad_shared = theano.function(inp, cost, updates=gsup,
                                     profile=profile)
 
     pup = [(p, p - lr * g) for p, g in zip(itemlist(tparams), gshared)]
@@ -1099,6 +1106,7 @@ def sgd(lr, tparams, grads, x, mask, y, cost):
 
 def train(dim_word=100,  # word vector dimensionality
           dim=1000,  # the number of LSTM units
+          class_num=3,
           encoder='gru',
           decoder='gru_cond',
           patience=10,  # early stopping patience
@@ -1151,6 +1159,11 @@ def train(dim_word=100,  # word vector dimensionality
         for kk, vv in worddicts[ii].iteritems():
             worddicts_r[ii][vv] = kk
 
+    print 'Loading embedings ...'
+    with open(embedings[0], 'rb') as f:
+        pretrained_embs = pkl.load(f)
+    print 'Done'
+
     # reload options
     if reload_ and os.path.exists(saveto):
         print 'Reloading model options'
@@ -1165,13 +1178,13 @@ def train(dim_word=100,  # word vector dimensionality
                          batch_size=batch_size,
                          maxlen=maxlen)
     valid = TextIterator(valid_datasets[0], valid_datasets[1],
-                         train_datasets[2],
+                         valid_datasets[2],
                          dictionaries[0],
                          n_words_source=n_words_src, n_words_target=n_words,
                          batch_size=valid_batch_size,
                          maxlen=maxlen)
-    test = TextIterator(valid_datasets[0], valid_datasets[1],
-                        train_datasets[2],
+    test = TextIterator(test_datasets[0], test_datasets[1],
+                        test_datasets[2],
                         dictionaries[0],
                         n_words_source=n_words_src, n_words_target=n_words,
                         batch_size=valid_batch_size,
@@ -1188,7 +1201,7 @@ def train(dim_word=100,  # word vector dimensionality
 
 
     trng, use_noise, \
-    x, x_mask, y, y_mask, label, all_embs, \
+    x, x_mask, y, y_mask, label, all_embs, predict_label, \
     cost = \
         build_dam(tparams, model_options)
     inps = [x, x_mask, y, y_mask, label, all_embs]
@@ -1198,7 +1211,7 @@ def train(dim_word=100,  # word vector dimensionality
 
     # before any regularizer
     print 'Building f_log_probs...',
-    f_log_probs = theano.function(inps, cost, profile=profile)
+    f_log_probs = theano.function(inps, [cost, predict_label], profile=profile)
     print 'Done'
 
     cost = cost.mean()
@@ -1275,10 +1288,14 @@ def train(dim_word=100,  # word vector dimensionality
             n_samples += len(x)
             uidx += 1
             use_noise.set_value(1.)
-
-            x, x_mask, y, y_mask, label = prepare_data(x, y, label, maxlen=maxlen,
+            try:
+                x, x_mask, y, y_mask, label = prepare_data(x, y, label, maxlen=maxlen,
                                                 n_words_src=n_words_src,
                                                 n_words=n_words)
+            
+            except ValueError:
+                print prepare_data(x, y, label, maxlen=maxlen) 
+                raise
 
             if x is None:
                 print 'Minibatch with zero sample under length ', maxlen
@@ -1288,7 +1305,7 @@ def train(dim_word=100,  # word vector dimensionality
             ud_start = time.time()
 
             # compute cost, grads and copy grads to shared variables
-            cost = f_grad_shared(x, x_mask, y, y_mask, label, all_embs)
+            cost = f_grad_shared(x, x_mask, y, y_mask, label, pretrained_embs)
 
             # do the update on parameters
             f_update(lrate)
@@ -1329,8 +1346,8 @@ def train(dim_word=100,  # word vector dimensionality
             # validate model on validation set and early stop if necessary
             if numpy.mod(uidx, validFreq) == 0:
                 use_noise.set_value(0.)
-                valid_errs = pred_probs(f_log_probs, prepare_data,
-                                        model_options, valid)
+                valid_errs, acc = pred_probs(f_log_probs, prepare_data,
+                                        model_options, valid, pretrained_embs)
                 valid_err = valid_errs.mean()
                 history_errs.append(valid_err)
 
@@ -1348,7 +1365,7 @@ def train(dim_word=100,  # word vector dimensionality
                 if numpy.isnan(valid_err):
                     ipdb.set_trace()
 
-                print 'Valid ', valid_err
+                print 'Valid ', valid_err, 'Acc ', acc 
 
             # finish after this many updates
             if uidx >= finish_after:
@@ -1365,10 +1382,10 @@ def train(dim_word=100,  # word vector dimensionality
         zipp(best_p, tparams)
 
     use_noise.set_value(0.)
-    valid_err = pred_probs(f_log_probs, prepare_data,
-                           model_options, valid).mean()
+    valid_err, acc = pred_probs(f_log_probs, prepare_data,
+                           model_options, valid, pretrained_embs).mean()
 
-    print 'Valid ', valid_err
+    print 'Valid ', valid_err, 'Acc ', acc 
 
     params = copy.copy(best_p)
     numpy.savez(saveto, zipped_params=best_p,
