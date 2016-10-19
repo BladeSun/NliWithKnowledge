@@ -186,7 +186,7 @@ def prepare_data(seqs_x, seqs_y, label, maxlen=None, n_words_src=30000,
         label = new_label
 
         if len(lengths_x) < 1 or len(lengths_y) < 1:
-            return None, None, None, None
+            return None, None, None, None, None
 
     n_samples = len(seqs_x)
     maxlen_x = numpy.max(lengths_x) + 1
@@ -668,13 +668,14 @@ def build_dam(tparams, options):
     logit_shp = logit.shape
     #probs = tensor.nnet.softmax(logit.reshape([logit_shp[0] * logit_shp[1], logit_shp[2]]))
     probs = tensor.nnet.softmax(logit)
+    predict_label = tensor.argmax(probs, 1)
 
     # cost
     label_idx = tensor.arange(label.shape[0]) * options['class_num'] + label
     #label_idx = tensor.arange(label.shape[0]) * options['class_num']
     cost = -tensor.log(probs.flatten()[label_idx])
 
-    return trng, use_noise, x, x_mask, y, y_mask, label, all_embs, cost
+    return trng, use_noise, x, x_mask, y, y_mask, label, all_embs, predict_label, cost
     # cost = cost.reshape([y.shape[0], y.shape[1]])
     # cost = (cost * y_mask).sum(0)
 
@@ -959,19 +960,22 @@ def gen_sample(tparams, f_init, f_next, x, options, trng=None, k=1, maxlen=30,
 
 
 # calculate the log probablities on a given corpus using translation model
-def pred_probs(f_log_probs, prepare_data, options, iterator, verbose=True):
+def pred_probs(f_log_probs, prepare_data, options, iterator, embs, verbose=False):
     probs = []
 
     n_done = 0
+    correct_num = 0
+    all_num = 0.
 
-    for x, y in iterator:
+    for x, y, label in iterator:
         n_done += len(x)
+        all_num += len(label)
 
-        x, x_mask, y, y_mask = prepare_data(x, y,
+        x, x_mask, y, y_mask, label = prepare_data(x, y, label,
                                             n_words_src=options['n_words_src'],
                                             n_words=options['n_words'])
 
-        pprobs = f_log_probs(x, x_mask, y, y_mask)
+        pprobs, predict_label = f_log_probs(x, x_mask, y, y_mask, label, embs)
         for pp in pprobs:
             probs.append(pp)
 
@@ -981,7 +985,10 @@ def pred_probs(f_log_probs, prepare_data, options, iterator, verbose=True):
         if verbose:
             print >> sys.stderr, '%d samples computed' % (n_done)
 
-    return numpy.array(probs)
+        correct_num += (label == predict_label).sum() 
+
+    print 'correct ', correct_num, 'all ', all_num 
+    return numpy.array(probs), correct_num/all_num
 
 
 # optimizers
@@ -1018,6 +1025,7 @@ def adam(lr, tparams, grads, inp, cost, beta1=0.9, beta2=0.999, e=1e-8):
 
 
 def adadelta(lr, tparams, grads, inp, cost):
+    print 'adadelta'
     zipped_grads = [theano.shared(p.get_value() * numpy.float32(0.),
                                   name='%s_grad' % k)
                     for k, p in tparams.iteritems()]
@@ -1081,13 +1089,13 @@ def rmsprop(lr, tparams, grads, inp, cost):
     return f_grad_shared, f_update
 
 
-def sgd(lr, tparams, grads, x, mask, y, cost):
+def sgd(lr, tparams, grads, inp, cost):
     gshared = [theano.shared(p.get_value() * 0.,
                              name='%s_grad' % k)
                for k, p in tparams.iteritems()]
     gsup = [(gs, g) for gs, g in zip(gshared, grads)]
 
-    f_grad_shared = theano.function([x, mask, y], cost, updates=gsup,
+    f_grad_shared = theano.function(inp, cost, updates=gsup,
                                     profile=profile)
 
     pup = [(p, p - lr * g) for p, g in zip(itemlist(tparams), gshared)]
@@ -1170,13 +1178,13 @@ def train(dim_word=100,  # word vector dimensionality
                          batch_size=batch_size,
                          maxlen=maxlen)
     valid = TextIterator(valid_datasets[0], valid_datasets[1],
-                         train_datasets[2],
+                         valid_datasets[2],
                          dictionaries[0],
                          n_words_source=n_words_src, n_words_target=n_words,
                          batch_size=valid_batch_size,
                          maxlen=maxlen)
-    test = TextIterator(valid_datasets[0], valid_datasets[1],
-                        train_datasets[2],
+    test = TextIterator(test_datasets[0], test_datasets[1],
+                        test_datasets[2],
                         dictionaries[0],
                         n_words_source=n_words_src, n_words_target=n_words,
                         batch_size=valid_batch_size,
@@ -1193,7 +1201,7 @@ def train(dim_word=100,  # word vector dimensionality
 
 
     trng, use_noise, \
-    x, x_mask, y, y_mask, label, all_embs, \
+    x, x_mask, y, y_mask, label, all_embs, predict_label, \
     cost = \
         build_dam(tparams, model_options)
     inps = [x, x_mask, y, y_mask, label, all_embs]
@@ -1203,7 +1211,7 @@ def train(dim_word=100,  # word vector dimensionality
 
     # before any regularizer
     print 'Building f_log_probs...',
-    f_log_probs = theano.function(inps, cost, profile=profile)
+    f_log_probs = theano.function(inps, [cost, predict_label], profile=profile)
     print 'Done'
 
     cost = cost.mean()
@@ -1280,10 +1288,14 @@ def train(dim_word=100,  # word vector dimensionality
             n_samples += len(x)
             uidx += 1
             use_noise.set_value(1.)
-
-            x, x_mask, y, y_mask, label = prepare_data(x, y, label, maxlen=maxlen,
+            try:
+                x, x_mask, y, y_mask, label = prepare_data(x, y, label, maxlen=maxlen,
                                                 n_words_src=n_words_src,
                                                 n_words=n_words)
+            
+            except ValueError:
+                print prepare_data(x, y, label, maxlen=maxlen) 
+                raise
 
             if x is None:
                 print 'Minibatch with zero sample under length ', maxlen
@@ -1334,8 +1346,8 @@ def train(dim_word=100,  # word vector dimensionality
             # validate model on validation set and early stop if necessary
             if numpy.mod(uidx, validFreq) == 0:
                 use_noise.set_value(0.)
-                valid_errs = pred_probs(f_log_probs, prepare_data,
-                                        model_options, valid)
+                valid_errs, acc = pred_probs(f_log_probs, prepare_data,
+                                        model_options, valid, pretrained_embs)
                 valid_err = valid_errs.mean()
                 history_errs.append(valid_err)
 
@@ -1353,7 +1365,7 @@ def train(dim_word=100,  # word vector dimensionality
                 if numpy.isnan(valid_err):
                     ipdb.set_trace()
 
-                print 'Valid ', valid_err
+                print 'Valid ', valid_err, 'Acc ', acc 
 
             # finish after this many updates
             if uidx >= finish_after:
@@ -1370,10 +1382,10 @@ def train(dim_word=100,  # word vector dimensionality
         zipp(best_p, tparams)
 
     use_noise.set_value(0.)
-    valid_err = pred_probs(f_log_probs, prepare_data,
-                           model_options, valid).mean()
+    valid_err, acc = pred_probs(f_log_probs, prepare_data,
+                           model_options, valid, pretrained_embs).mean()
 
-    print 'Valid ', valid_err
+    print 'Valid ', valid_err, 'Acc ', acc 
 
     params = copy.copy(best_p)
     numpy.savez(saveto, zipped_params=best_p,
