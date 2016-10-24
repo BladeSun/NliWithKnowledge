@@ -599,15 +599,18 @@ def init_params(options):
     # params['Wemb_dec'] = norm_weight(options['n_words'], options['dim_word'])
 
     # funcf
-    params = get_layer('funcf_layer')[0](options, params,
-                                         prefix='funcf',
-                                         nin=options['dim_word'],
-                                         nout=options['dim'])
+    #params = get_layer('funcf_layer')[0](options, params,
+    #                                     prefix='funcf',
+    #                                     nin=options['dim_word'],
+    #                                     nout=options['dim'])
     # funcG
-    params = get_layer('funcf_layer')[0](options, params,
-                                         prefix='funcG',
-                                         nin=options['dim_word'] * 2,
-                                         nout=options['dim'])
+    #params = get_layer('funcf_layer')[0](options, params,
+    #                                     prefix='funcG',
+    #                                     nin=options['dim_word'] * 2,
+    #                                     nout=options['dim'])
+    params = get_layer('ff')[0](options, params, prefix='funcG',
+                                nin=options['dim'] * 2, nout=options['dim'],
+                                ortho=False)
     # readout
     params = get_layer('ff')[0](options, params, prefix='ff_logit',
                                 nin=options['dim'] * 2, nout=options['class_num'],
@@ -641,11 +644,11 @@ def build_dam(tparams, options):
     emb_t = emb_t.reshape([n_timesteps_t, n_samples, options['dim_word']])
     emb_t = emb_t.swapaxes(0, 1)
 
-    proj_h = get_layer('funcf_layer')[1](tparams, emb_h, options,
-                                         prefix='funcf')
-    proj_t = get_layer('funcf_layer')[1](tparams, emb_t, options,
-                                         prefix='funcf')
-    e_ij = tensor.batched_dot(proj_h, proj_t.swapaxes(1,2))
+    #proj_h = get_layer('funcf_layer')[1](tparams, emb_h, options,
+    #                                     prefix='funcf')
+    #proj_t = get_layer('funcf_layer')[1](tparams, emb_t, options,
+    #                                     prefix='funcf')
+    e_ij = tensor.batched_dot(emb_h, emb_t.swapaxes(1,2))
     walpha = tensor.nnet.softmax(e_ij.reshape([n_timesteps_h * n_samples, n_timesteps_t]))
     walpha = walpha.swapaxes(0, 1) * x_mask[0, 0, None]
     walpha = walpha.swapaxes(0, 1)
@@ -655,10 +658,10 @@ def build_dam(tparams, options):
     wbeta = wbeta.swapaxes(0, 1) * y_mask[0, 0, None]
     wbeta = wbeta.swapaxes(0, 1)
     beta = tensor.batched_dot(wbeta.reshape([n_samples, n_timesteps_t, n_timesteps_h]), emb_h)
-    v1 = get_layer('funcf_layer')[1](tparams, concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
+    v1 = get_layer('ff')[1](tparams, concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
     #v1 = get_layer('funcf_layer')[1](tparams, theano.tensor.concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
     v1 = v1.sum(1)
-    v2 = get_layer('funcf_layer')[1](tparams, concatenate([beta, emb_t], axis=2), options,
+    v2 = get_layer('ff')[1](tparams, concatenate([beta, emb_t], axis=2), options,
                                      prefix='funcG')
     v2 = v2.sum(1)
 

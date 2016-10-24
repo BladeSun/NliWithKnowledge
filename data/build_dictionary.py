@@ -25,9 +25,10 @@ def main():
 
     worddict = OrderedDict()
     worddict['eos'] = 0
-    worddict['UNK'] = 1
+    worddict['b_o_s'] = 1
+    worddict['UNK'] = 2
     for ii, ww in enumerate(sorted_words):
-        worddict[ww] = ii+2
+        worddict[ww] = ii+3
 
     save_name = 'snli_dict'
     with open('%s.pkl'%save_name, 'wb') as f:
