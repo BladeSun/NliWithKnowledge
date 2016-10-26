@@ -9,6 +9,7 @@ def main(dict_path, emb_path, dim):
        word_dict = pkl.load(f)
     num = len(word_dict)
     emb = 0.01 * numpy.random.randn(num, dim).astype('float32')
+    emb[0] = 0.01 * numpy.zeros(dim).astype('float32')
     count = 0
     with open(emb_path, 'r') as f:
         for line in f:

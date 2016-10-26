@@ -189,8 +189,8 @@ def prepare_data(seqs_x, seqs_y, label, maxlen=None, n_words_src=30000,
             return None, None, None, None, None
 
     n_samples = len(seqs_x)
-    maxlen_x = numpy.max(lengths_x) + 1
-    maxlen_y = numpy.max(lengths_y) + 1
+    maxlen_x = numpy.max(lengths_x) + 2
+    maxlen_y = numpy.max(lengths_y) + 2
 
     x = numpy.zeros((maxlen_x, n_samples)).astype('int64')
     y = numpy.zeros((maxlen_y, n_samples)).astype('int64')
@@ -198,10 +198,14 @@ def prepare_data(seqs_x, seqs_y, label, maxlen=None, n_words_src=30000,
     x_mask = numpy.zeros((maxlen_x, n_samples)).astype('float32')
     y_mask = numpy.zeros((maxlen_y, n_samples)).astype('float32')
     for idx, [s_x, s_y] in enumerate(zip(seqs_x, seqs_y)):
-        x[:lengths_x[idx], idx] = s_x
-        x_mask[:lengths_x[idx] + 1, idx] = 1.
-        y[:lengths_y[idx], idx] = s_y
-        y_mask[:lengths_y[idx] + 1, idx] = 1.
+        x[0, idx] = 1
+        x[lengths_x[idx], idx] = 2
+        x[1:lengths_x[idx] + 1, idx] = s_x
+        x_mask[:lengths_x[idx] + 2, idx] = 1.
+        y[0, idx] = 1
+        y[lengths_y[idx], idx] = 2
+        y[1:lengths_y[idx] + 1, idx] = s_y
+        y_mask[:lengths_y[idx] + 2, idx] = 1.
 
     return x, x_mask, y, y_mask, flabel
 
@@ -595,7 +599,8 @@ def init_params(options):
     params = OrderedDict()
 
     # embedding
-    # params['Wemb'] = norm_weight(options['n_words_src'], options['dim_word'])
+    #params['Wemb'] = norm_weight(options['dict_size'], options['dim_word'])
+    params['Wemb'] = options['allembs']
     # params['Wemb_dec'] = norm_weight(options['n_words'], options['dim_word'])
 
     # funcf
@@ -629,18 +634,18 @@ def build_dam(tparams, options):
     x_mask = tensor.matrix('x_mask', dtype='float32')
     y = tensor.matrix('y', dtype='int64')
     y_mask = tensor.matrix('y_mask', dtype='float32')
-    all_embs = tensor.matrix('emb', dtype='float32')
+    #all_embs = tensor.matrix('emb', dtype='float32')
     label = tensor.vector('label', dtype='int64')
 
     n_timesteps_h = x.shape[0]
     n_timesteps_t = y.shape[0]
     n_samples = x.shape[1]
 
-    emb_h = all_embs[x.flatten()]
+    emb_h = tparams['Wemb'][x.flatten()]
     emb_h = emb_h.reshape([n_timesteps_h, n_samples, options['dim_word']])
     emb_h = emb_h.swapaxes(0, 1)
 
-    emb_t = all_embs[y.flatten()]
+    emb_t = tparams['Wemb'][y.flatten()]
     emb_t = emb_t.reshape([n_timesteps_t, n_samples, options['dim_word']])
     emb_t = emb_t.swapaxes(0, 1)
 
@@ -650,19 +655,23 @@ def build_dam(tparams, options):
     #                                     prefix='funcf')
     e_ij = tensor.batched_dot(emb_h, emb_t.swapaxes(1,2))
     walpha = tensor.nnet.softmax(e_ij.reshape([n_timesteps_h * n_samples, n_timesteps_t]))
-    walpha = walpha.swapaxes(0, 1) * x_mask[0, 0, None]
-    walpha = walpha.swapaxes(0, 1)
-    alpha = tensor.batched_dot(walpha.reshape([n_samples, n_timesteps_h, n_timesteps_t]), emb_t)
+    walpha = walpha.reshape([n_samples, n_timesteps_h, n_timesteps_t])
+    walpha = walpha.swapaxes(1, 2) * y_mask.swapaxes(0,1)[:, :, None]
+    walpha = walpha.swapaxes(1, 2)
+    alpha = tensor.batched_dot(walpha, emb_t)
 
     wbeta = tensor.nnet.softmax(e_ij.swapaxes(1, 2).reshape([n_timesteps_t * n_samples, n_timesteps_h]))
-    wbeta = wbeta.swapaxes(0, 1) * y_mask[0, 0, None]
-    wbeta = wbeta.swapaxes(0, 1)
-    beta = tensor.batched_dot(wbeta.reshape([n_samples, n_timesteps_t, n_timesteps_h]), emb_h)
+    wbeta = wbeta.reshape([n_samples, n_timesteps_t, n_timesteps_h])
+    wbeta = wbeta.swapaxes(1, 2) * x_mask.swapaxes(0,1)[:, :, None]
+    wbeta = wbeta.swapaxes(1, 2)
+    beta = tensor.batched_dot(wbeta, emb_h)
     v1 = get_layer('ff')[1](tparams, concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
     #v1 = get_layer('funcf_layer')[1](tparams, theano.tensor.concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
+    v1 = v1 * x_mask.swapaxes(0, 1)[:, :, None]
     v1 = v1.sum(1)
     v2 = get_layer('ff')[1](tparams, concatenate([beta, emb_t], axis=2), options,
                                      prefix='funcG')
+    v2 = v2 * y_mask.swapaxes(0, 1)[:, :, None]
     v2 = v2.sum(1)
 
     #logit = get_layer('ff')[1](tparams, concatenate([v1, v2], axis=1), options, prefix='ff_logit')
@@ -681,7 +690,7 @@ def build_dam(tparams, options):
     #cost = -tensor.log(probs.flatten()[label_idx])
     cost = -tensor.log(probs)[tensor.arange(label.shape[0]), label]
 
-    return trng, use_noise, x, x_mask, y, y_mask, label, all_embs, predict_label, cost
+    return trng, use_noise, x, x_mask, y, y_mask, label, predict_label, cost
     # cost = cost.reshape([y.shape[0], y.shape[1]])
     # cost = (cost * y_mask).sum(0)
 
@@ -966,7 +975,7 @@ def gen_sample(tparams, f_init, f_next, x, options, trng=None, k=1, maxlen=30,
 
 
 # calculate the log probablities on a given corpus using translation model
-def pred_probs(f_log_probs, prepare_data, options, iterator, embs, verbose=False):
+def pred_probs(f_log_probs, prepare_data, options, iterator, verbose=False):
     probs = []
 
     n_done = 0
@@ -981,7 +990,7 @@ def pred_probs(f_log_probs, prepare_data, options, iterator, embs, verbose=False
                                             n_words_src=options['n_words_src'],
                                             n_words=options['n_words'])
 
-        pprobs, predict_label = f_log_probs(x, x_mask, y, y_mask, label, embs)
+        pprobs, predict_label = f_log_probs(x, x_mask, y, y_mask, label)
         for pp in pprobs:
             probs.append(pp)
 
@@ -1171,7 +1180,7 @@ def train(dim_word=100,  # word vector dimensionality
         pretrained_embs = pkl.load(f)
         #pretrained_embs = theano.shared(pretrained_embs, name='pretrained_embs')
     print 'Done'
-
+    model_options['allembs'] = pretrained_embs
     # reload options
     if reload_ and os.path.exists(saveto):
         print 'Reloading model options'
@@ -1209,10 +1218,10 @@ def train(dim_word=100,  # word vector dimensionality
 
 
     trng, use_noise, \
-    x, x_mask, y, y_mask, label, all_embs, predict_label, \
+    x, x_mask, y, y_mask, label, predict_label, \
     cost = \
         build_dam(tparams, model_options)
-    inps = [x, x_mask, y, y_mask, label, all_embs]
+    inps = [x, x_mask, y, y_mask, label]
 
     # print 'Building sampler'
     # f_init, f_next = build_sampler(tparams, model_options, trng, use_noise)
@@ -1225,13 +1234,13 @@ def train(dim_word=100,  # word vector dimensionality
     cost = cost.mean()
 
     # apply L2 regularization on weights
-    if decay_c > 0.:
-        decay_c = theano.shared(numpy.float32(decay_c), name='decay_c')
-        weight_decay = 0.
-        for kk, vv in tparams.iteritems():
-            weight_decay += (vv ** 2).sum()
-        weight_decay *= decay_c
-        cost += weight_decay
+    # if decay_c > 0.:
+    #     decay_c = theano.shared(numpy.float32(decay_c), name='decay_c')
+    #     weight_decay = 0.
+    #     for kk, vv in tparams.iteritems():
+    #         weight_decay += (vv ** 2).sum()
+    #     weight_decay *= decay_c
+    #     cost += weight_decay
 
     ## regularize the alpha weights
     #if alpha_c > 0. and not model_options['decoder'].endswith('simple'):
@@ -1313,7 +1322,7 @@ def train(dim_word=100,  # word vector dimensionality
             ud_start = time.time()
 
             # compute cost, grads and copy grads to shared variables
-            cost = f_grad_shared(x, x_mask, y, y_mask, label, pretrained_embs)
+            cost = f_grad_shared(x, x_mask, y, y_mask, label)
 
             # do the update on parameters
             #print 'Befor:'
@@ -1360,11 +1369,11 @@ def train(dim_word=100,  # word vector dimensionality
             # validate model on validation set and early stop if necessary
             if numpy.mod(uidx, validFreq) == 0:
                 use_noise.set_value(0.)
-                print 'Here:'
-                print tparams['ff_logit_W'].get_value()
+                #print 'Here:'
+                #print tparams['ff_logit_W'].get_value()
                 #print unzip(tparams)
                 valid_errs, acc = pred_probs(f_log_probs, prepare_data,
-                                        model_options, valid, pretrained_embs)
+                                        model_options, valid)
                 valid_err = valid_errs.mean()
                 history_errs.append(valid_err)
 
@@ -1400,7 +1409,7 @@ def train(dim_word=100,  # word vector dimensionality
 
     use_noise.set_value(0.)
     valid_err, acc = pred_probs(f_log_probs, prepare_data,
-                           model_options, valid, pretrained_embs).mean()
+                           model_options, valid).mean()
 
     print 'Valid ', valid_err, 'Acc ', acc 
 

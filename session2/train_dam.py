@@ -31,7 +31,7 @@ if __name__ == '__main__':
         'model': ['model_dam_gpu05.npz'],
         'dim_word': [300],
         'dim': [300],
-        'optimizer': ['sgd'],
+        'optimizer': ['adam'],
         'decay-c': [0.],
         'clip-c': [0.],
         'use-dropout': [True],
