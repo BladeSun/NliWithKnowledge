@@ -621,6 +621,10 @@ def init_params(options):
                                 nin=options['dim'] * 2, nout=options['class_num'],
                                 ortho=False)
 
+    params = get_layer('ff')[0](options, params, prefix='ff_logit_linear',
+                                nin=options['class_num'], nout=options['class_num'],
+                                ortho=False)
+
     return params
 
 
@@ -644,10 +648,14 @@ def build_dam(tparams, options):
     emb_h = tparams['Wemb'][x.flatten()]
     emb_h = emb_h.reshape([n_timesteps_h, n_samples, options['dim_word']])
     emb_h = emb_h.swapaxes(0, 1)
+    if options['use_dropout']:
+        emb_h = dropout_layer(emb_h, use_noise, trng)
 
     emb_t = tparams['Wemb'][y.flatten()]
     emb_t = emb_t.reshape([n_timesteps_t, n_samples, options['dim_word']])
     emb_t = emb_t.swapaxes(0, 1)
+    if options['use_dropout']:
+        emb_t = dropout_layer(emb_t, use_noise, trng)
 
     #proj_h = get_layer('funcf_layer')[1](tparams, emb_h, options,
     #                                     prefix='funcf')
@@ -675,10 +683,16 @@ def build_dam(tparams, options):
     v2 = v2.sum(1)
 
     #logit = get_layer('ff')[1](tparams, concatenate([v1, v2], axis=1), options, prefix='ff_logit')
-    logit = get_layer('ff')[1](tparams, concatenate([v1, v2], axis=1), options, prefix='ff_logit')
+    v = concatenate([v1, v2], axis=1)
+    if options['use_dropout']:
+        v = dropout_layer(v, use_noise, trng)
+
+    logit = get_layer('ff')[1](tparams, v, options, prefix='ff_logit')
+    logit = get_layer('ff')[1](tparams, logit, options, prefix='ff_logit_linear', activ='linear')
 
     if options['use_dropout']:
         logit = dropout_layer(logit, use_noise, trng)
+
 
     logit_shp = logit.shape
     #probs = tensor.nnet.softmax(logit.reshape([logit_shp[0] * logit_shp[1], logit_shp[2]]))

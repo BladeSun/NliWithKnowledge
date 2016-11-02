@@ -109,6 +109,8 @@ def norm_weight(nin, nout=None, scale=0.01, ortho=True):
 def tanh(x):
     return tensor.tanh(x)
 
+def relu(x):
+    return tensor.nnet.relu(x)
 
 def linear(x):
     return x
@@ -642,34 +644,34 @@ def build_dam(tparams, options):
     emb_t = emb_t.swapaxes(0, 1)
 
     proj_h = get_layer('funcf_layer')[1](tparams, emb_h, options,
-                                         prefix='funcf')
+                                         prefix='funcf', activ='relu')
     proj_t = get_layer('funcf_layer')[1](tparams, emb_t, options,
-                                         prefix='funcf')
+                                         prefix='funcf', activ='relu')
     e_ij = tensor.batched_dot(proj_h, proj_t.swapaxes(1,2))
     walpha = tensor.nnet.softmax(e_ij.reshape([n_timesteps_h * n_samples, n_timesteps_t]))
-    walpha = walpha.swapaxes(0, 1) * x_mask[0, 0, None]
-    walpha = walpha.swapaxes(0, 1)
-    alpha = tensor.batched_dot(walpha.reshape([n_samples, n_timesteps_h, n_timesteps_t]), emb_t)
+    walpha = walpha.reshape([n_samples, n_timesteps_h, n_timesteps_t])
+    walpha = walpha.swapaxes(1, 2) * y_mask.swapaxes(0,1)[:, :, None]
+    walpha = walpha.swapaxes(1, 2)
+    alpha = tensor.batched_dot(walpha, emb_t)
 
     wbeta = tensor.nnet.softmax(e_ij.swapaxes(1, 2).reshape([n_timesteps_t * n_samples, n_timesteps_h]))
-    wbeta = wbeta.swapaxes(0, 1) * y_mask[0, 0, None]
-    wbeta = wbeta.swapaxes(0, 1)
-    beta = tensor.batched_dot(wbeta.reshape([n_samples, n_timesteps_t, n_timesteps_h]), emb_h)
-    v1 = get_layer('funcf_layer')[1](tparams, concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
-    #v1 = get_layer('funcf_layer')[1](tparams, theano.tensor.concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
+    wbeta = wbeta.reshape([n_samples, n_timesteps_t, n_timesteps_h])
+    wbeta = wbeta.swapaxes(1, 2) * x_mask.swapaxes(0,1)[:, :, None]
+    wbeta = wbeta.swapaxes(1, 2)
+    beta = tensor.batched_dot(wbeta, emb_h)
+
+    v1 = get_layer('funcf_layer')[1](tparams, concatenate([alpha, emb_h], axis=2), options,prefix='funcG', activ='relu')
     v1 = v1.sum(1)
     v2 = get_layer('funcf_layer')[1](tparams, concatenate([beta, emb_t], axis=2), options,
-                                     prefix='funcG')
+                                     prefix='funcG', activ='relu')
     v2 = v2.sum(1)
 
-    #logit = get_layer('ff')[1](tparams, concatenate([v1, v2], axis=1), options, prefix='ff_logit')
-    logit = get_layer('ff')[1](tparams, concatenate([v1, v2], axis=1), options, prefix='ff_logit')
+    logit = get_layer('ff')[1](tparams, concatenate([v1, v2], axis=1), options, prefix='ff_logit', activ='linear')
 
     if options['use_dropout']:
         logit = dropout_layer(logit, use_noise, trng)
 
     logit_shp = logit.shape
-    #probs = tensor.nnet.softmax(logit.reshape([logit_shp[0] * logit_shp[1], logit_shp[2]]))
     probs = tensor.nnet.softmax(logit)
     predict_label = tensor.argmax(probs, 1)
 
@@ -679,8 +681,6 @@ def build_dam(tparams, options):
     cost = -tensor.log(probs)[tensor.arange(label.shape[0]), label]
 
     return trng, use_noise, x, x_mask, y, y_mask, label, all_embs, predict_label, cost
-    # cost = cost.reshape([y.shape[0], y.shape[1]])
-    # cost = (cost * y_mask).sum(0)
 
 
 # build a training model
@@ -1357,8 +1357,8 @@ def train(dim_word=100,  # word vector dimensionality
             # validate model on validation set and early stop if necessary
             if numpy.mod(uidx, validFreq) == 0:
                 use_noise.set_value(0.)
-                print 'Here:'
-                print tparams['ff_logit_W'].get_value()
+                #print 'Here:'
+                #print tparams['ff_logit_W'].get_value()
                 #print unzip(tparams)
                 valid_errs, acc = pred_probs(f_log_probs, prepare_data,
                                         model_options, valid, pretrained_embs)
