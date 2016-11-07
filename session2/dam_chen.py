@@ -106,6 +106,9 @@ def norm_weight(nin, nout=None, scale=0.01, ortho=True):
     return W.astype('float32')
 
 
+def relu(x):
+    return tensor.nnet.relu(x)
+
 def tanh(x):
     return tensor.tanh(x)
 
@@ -618,11 +621,11 @@ def init_params(options):
                                 ortho=False)
     # readout
     params = get_layer('ff')[0](options, params, prefix='ff_logit',
-                                nin=options['dim'] * 2, nout=options['class_num'],
+                                nin=options['dim'] * 2, nout=options['dim'],
                                 ortho=False)
 
     params = get_layer('ff')[0](options, params, prefix='ff_logit_linear',
-                                nin=options['class_num'], nout=options['class_num'],
+                                nin=options['dim'], nout=options['class_num'],
                                 ortho=False)
 
     return params
@@ -647,13 +650,11 @@ def build_dam(tparams, options):
 
     emb_h = tparams['Wemb'][x.flatten()]
     emb_h = emb_h.reshape([n_timesteps_h, n_samples, options['dim_word']])
-    emb_h = emb_h.swapaxes(0, 1)
     if options['use_dropout']:
         emb_h = dropout_layer(emb_h, use_noise, trng)
 
     emb_t = tparams['Wemb'][y.flatten()]
     emb_t = emb_t.reshape([n_timesteps_t, n_samples, options['dim_word']])
-    emb_t = emb_t.swapaxes(0, 1)
     if options['use_dropout']:
         emb_t = dropout_layer(emb_t, use_noise, trng)
 
@@ -661,52 +662,42 @@ def build_dam(tparams, options):
     #                                     prefix='funcf')
     #proj_t = get_layer('funcf_layer')[1](tparams, emb_t, options,
     #                                     prefix='funcf')
-    e_ij = tensor.batched_dot(emb_h, emb_t.swapaxes(1,2))
-    walpha = tensor.nnet.softmax(e_ij.reshape([n_timesteps_h * n_samples, n_timesteps_t]))
-    walpha = walpha.reshape([n_samples, n_timesteps_h, n_timesteps_t])
-    walpha = walpha.swapaxes(1, 2) * y_mask.swapaxes(0,1)[:, :, None]
-    walpha = walpha.swapaxes(1, 2)
-    alpha = tensor.batched_dot(walpha, emb_t)
+    weight_matrix = tensor.batched_dot(emb_h.dimshuffle(1, 0, 2), emb_t.dimshuffle(1, 2, 0))
+    
+    weight_matrix_1 = tensor.exp(weight_matrix - weight_matrix.max(1, keepdims=True)).dimshuffle(1,2,0)
+    weight_matrix_2 = tensor.exp(weight_matrix - weight_matrix.max(2, keepdims=True)).dimshuffle(1,2,0)
 
-    wbeta = tensor.nnet.softmax(e_ij.swapaxes(1, 2).reshape([n_timesteps_t * n_samples, n_timesteps_h]))
-    wbeta = wbeta.reshape([n_samples, n_timesteps_t, n_timesteps_h])
-    wbeta = wbeta.swapaxes(1, 2) * x_mask.swapaxes(0,1)[:, :, None]
-    wbeta = wbeta.swapaxes(1, 2)
-    beta = tensor.batched_dot(wbeta, emb_h)
-    v1 = get_layer('ff')[1](tparams, concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
-    #v1 = get_layer('funcf_layer')[1](tparams, theano.tensor.concatenate([alpha, emb_h], axis=2), options,prefix='funcG')
-    v1 = v1 * x_mask.swapaxes(0, 1)[:, :, None]
-    v1 = v1.sum(1)
-    v2 = get_layer('ff')[1](tparams, concatenate([beta, emb_t], axis=2), options,
-                                     prefix='funcG')
-    v2 = v2 * y_mask.swapaxes(0, 1)[:, :, None]
-    v2 = v2.sum(1)
+    alpha_weight = weight_matrix_1 * x_mask.dimshuffle(0, 'x', 1)/ weight_matrix_1.sum(0, keepdims=True)
+    beta_weight = weight_matrix_2 * y_mask.dimshuffle('x', 0, 1)/ weight_matrix_2.sum(1, keepdims=True)
 
-    #logit = get_layer('ff')[1](tparams, concatenate([v1, v2], axis=1), options, prefix='ff_logit')
-    v = concatenate([v1, v2], axis=1)
-    if options['use_dropout']:
-        v = dropout_layer(v, use_noise, trng)
+    alpha = (emb_h.dimshuffle(0, 'x', 1, 2) * alpha_weight.dimshuffle(0, 1, 2, 'x')).sum(0)
+    beta = (emb_t.dimshuffle('x', 0, 1, 2) * beta_weight.dimshuffle(0, 1, 2, 'x')).sum(1)
 
-    logit = get_layer('ff')[1](tparams, v, options, prefix='ff_logit')
-    logit = get_layer('ff')[1](tparams, logit, options, prefix='ff_logit_linear', activ='linear')
+    v1 = concatenate([emb_h, beta], axis=2)
+    v2 = concatenate([emb_t, alpha], axis=2)
 
+    proj_v1 = get_layer('ff')[1](tparams, v1, options,prefix='funcG', activ='relu')
+    proj_v2 = get_layer('ff')[1](tparams, v2, options, prefix='funcG', activ='relu')
+
+    logit1 = (proj_v1 * x_mask[:, :, None]).sum(0)
+    logit2 = (proj_v2 * y_mask[:, :, None]).sum(0)
+
+    logit = concatenate([logit1, logit2], axis=1)
     if options['use_dropout']:
         logit = dropout_layer(logit, use_noise, trng)
 
+    logit = get_layer('ff')[1](tparams, logit, options, prefix='ff_logit', activ='tanh')
+    if options['use_dropout']:
+        logit = dropout_layer(logit, use_noise, trng)
+    logit = get_layer('ff')[1](tparams, logit, options, prefix='ff_logit_linear', activ='linear')
 
-    logit_shp = logit.shape
-    #probs = tensor.nnet.softmax(logit.reshape([logit_shp[0] * logit_shp[1], logit_shp[2]]))
     probs = tensor.nnet.softmax(logit)
-    predict_label = tensor.argmax(probs, 1)
+    predict_label = tensor.argmax(probs)
 
-    # cost
-    #label_idx = tensor.arange(label.shape[0]) * options['class_num'] + label
-    #cost = -tensor.log(probs.flatten()[label_idx])
     cost = -tensor.log(probs)[tensor.arange(label.shape[0]), label]
+    #cost = tensor.nnet.categorical_crossentropy(probs, label)
 
     return trng, use_noise, x, x_mask, y, y_mask, label, predict_label, cost
-    # cost = cost.reshape([y.shape[0], y.shape[1]])
-    # cost = (cost * y_mask).sum(0)
 
 
 # build a training model

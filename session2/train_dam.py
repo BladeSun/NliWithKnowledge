@@ -36,4 +36,4 @@ if __name__ == '__main__':
         'clip-c': [0.],
         'use-dropout': [True],
         'batch_size': [32],
-        'learning-rate': [0.0012]})
+        'learning-rate': [0.0004]})
