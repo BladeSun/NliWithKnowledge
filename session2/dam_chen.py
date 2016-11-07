@@ -694,8 +694,8 @@ def build_dam(tparams, options):
     probs = tensor.nnet.softmax(logit)
     predict_label = tensor.argmax(probs)
 
-    cost = -tensor.log(probs)[tensor.arange(label.shape[0]), label]
-    #cost = tensor.nnet.categorical_crossentropy(probs, label)
+    #cost = -tensor.log(probs)[tensor.arange(label.shape[0]), label]
+    cost = tensor.nnet.categorical_crossentropy(probs, label)
 
     return trng, use_noise, x, x_mask, y, y_mask, label, predict_label, cost
 
