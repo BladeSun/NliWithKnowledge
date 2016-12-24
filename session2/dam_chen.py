@@ -692,7 +692,7 @@ def build_dam(tparams, options):
     logit = get_layer('ff')[1](tparams, logit, options, prefix='ff_logit_linear', activ='linear')
 
     probs = tensor.nnet.softmax(logit)
-    predict_label = tensor.argmax(probs)
+    predict_label = probs.argmax(axis=1 )
 
     #cost = -tensor.log(probs)[tensor.arange(label.shape[0]), label]
     cost = tensor.nnet.categorical_crossentropy(probs, label)
