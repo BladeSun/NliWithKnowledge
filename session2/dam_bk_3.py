@@ -1177,7 +1177,7 @@ def train(dim_word=100,  # word vector dimensionality
           class_num=3,
           encoder='gru',
           decoder='gru_cond',
-          patience=10,  # early stopping patience
+          patience=5,  # early stopping patience
           max_epochs=5000,
           finish_after=10000000,  # finish after this many updates
           dispFreq=100,
@@ -1224,8 +1224,10 @@ def train(dim_word=100,  # word vector dimensionality
           use_dropout=False,
           reload_=False,
           overwrite=False):
+    log = logging.getLogger(os.path.basename(__file__).split('.')[0])
     # Model options
     model_options = locals().copy()
+    log.info(vars(model_options))
 
     # load dictionaries and invert them
     worddicts = [None] * len(dictionaries)
@@ -1374,13 +1376,9 @@ def train(dim_word=100,  # word vector dimensionality
     #    sampleFreq = len(train[0]) / batch_size
 
     
-    log = logging.getLogger('BkLog4')
-
-    epochFlag = False
 
     for eidx in xrange(max_epochs):
         n_samples = 0
-        epochFlag = True
 
         for x, x_syn, y, y_syn, label in train:
             n_samples += len(x)
@@ -1480,19 +1478,18 @@ def train(dim_word=100,  # word vector dimensionality
                         estop = True
                         break
 
-                if edx != 0 and epochFlag == True:
-                    if history_accs[-2] <= numpy.array(history_accs[-2]).max():
-                        bad_counter_acc += 1      
-                        if bad_counter_acc > 1
-                            print 'Early Stop Acc!'
-                            estop = True
-                            break 
-
                 if numpy.isnan(valid_err):
                     ipdb.set_trace()
 
-                print 'Valid ', valid_err, 'Acc ', acc 
+                log.info('Epoch: %n Update: %n ValidAcc: %f TestAcc: %f' % (eidx, uidx, valid_acc, test_acc))
 
+            #test acc after one epoch
+            if history_accs[-1] <= numpy.array(history_accs)[:-1].max():
+                bad_counter_acc += 1
+                if bad_counter_acc > 1:
+                    print 'Early Stop Acc!'
+                    estop = True
+                    break
             # finish after this many updates
             if uidx >= finish_after:
                 print 'Finishing after %d iterations!' % uidx
