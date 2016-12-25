@@ -1224,10 +1224,10 @@ def train(dim_word=100,  # word vector dimensionality
           use_dropout=False,
           reload_=False,
           overwrite=False):
-    log = logging.getLogger(os.path.basename(__file__).split('.')[0])
     # Model options
     model_options = locals().copy()
-    log.info(vars(model_options))
+    print model_options
+    log = logging.getLogger(os.path.basename(__file__).split('.')[0])
 
     # load dictionaries and invert them
     worddicts = [None] * len(dictionaries)
@@ -1426,7 +1426,7 @@ def train(dim_word=100,  # word vector dimensionality
 
             # verbose
             if numpy.mod(uidx, dispFreq) == 0:
-                log.info('Epoch: %n Update: %n Cost: %f UD: %f'%(eidx, uidx, cost, ud))
+                log.info('Epoch: %d Update: %d Cost: %f UD: %f'%(eidx, uidx, cost, ud))
                 #print 'Epoch ', eidx, 'Update ', uidx, 'Cost ', cost, 'UD ', ud
 
             # save the best model so far, in addition, save the latest model
@@ -1481,15 +1481,8 @@ def train(dim_word=100,  # word vector dimensionality
                 if numpy.isnan(valid_err):
                     ipdb.set_trace()
 
-                log.info('Epoch: %n Update: %n ValidAcc: %f TestAcc: %f' % (eidx, uidx, valid_acc, test_acc))
+                log.info('Epoch: %d Update: %d ValidAcc: %f TestAcc: %f' % (eidx, uidx, valid_acc, test_acc))
 
-            #test acc after one epoch
-            if history_accs[-1] <= numpy.array(history_accs)[:-1].max():
-                bad_counter_acc += 1
-                if bad_counter_acc > 1:
-                    print 'Early Stop Acc!'
-                    estop = True
-                    break
             # finish after this many updates
             if uidx >= finish_after:
                 print 'Finishing after %d iterations!' % uidx
@@ -1499,6 +1492,13 @@ def train(dim_word=100,  # word vector dimensionality
             epochFlag = False
 
         print 'Seen %d samples' % n_samples
+        #test acc after one epoch
+        if history_accs[-1] <= numpy.array(history_accs)[:-1].max():
+            bad_counter_acc += 1
+            if bad_counter_acc > 1:
+                print 'Early Stop Acc!'
+                estop = True
+                break
 
         if estop:
             break
