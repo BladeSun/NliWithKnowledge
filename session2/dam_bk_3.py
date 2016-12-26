@@ -1505,7 +1505,7 @@ def train(dim_word=100,  # word vector dimensionality
         print 'Seen %d samples' % n_samples
         #test acc after one epoch
         epoch_accs.append(history_accs[-1])
-        if epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
+        if eidx >0 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
             bad_counter_acc += 1
             if bad_counter_acc > 1:
                 print 'Early Stop Acc!'

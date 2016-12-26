@@ -14,6 +14,7 @@ import os
 import warnings
 import sys
 import time
+import logging
 
 from collections import OrderedDict
 
@@ -202,11 +203,11 @@ def prepare_data(seqs_x, seqs_y, label, maxlen=None, n_words_src=30000,
     y_mask = numpy.zeros((maxlen_y, n_samples)).astype('float32')
     for idx, [s_x, s_y] in enumerate(zip(seqs_x, seqs_y)):
         x[0, idx] = 1
-        x[lengths_x[idx], idx] = 2
+        x[lengths_x[idx]+1, idx] = 2
         x[1:lengths_x[idx] + 1, idx] = s_x
         x_mask[:lengths_x[idx] + 2, idx] = 1.
         y[0, idx] = 1
-        y[lengths_y[idx], idx] = 2
+        y[lengths_y[idx]+1, idx] = 2
         y[1:lengths_y[idx] + 1, idx] = s_y
         y_mask[:lengths_y[idx] + 2, idx] = 1.
 
@@ -1169,6 +1170,7 @@ def train(dim_word=100,  # word vector dimensionality
           overwrite=False):
     # Model options
     model_options = locals().copy()
+    log = logging.getLogger(os.path.basename(__file__).split('.')[0])
 
     # load dictionaries and invert them
     worddicts = [None] * len(dictionaries)
@@ -1286,9 +1288,12 @@ def train(dim_word=100,  # word vector dimensionality
 
     best_p = None
     bad_counter = 0
+    bad_counter_acc = 0
     uidx = 0
     estop = False
     history_errs = []
+    history_accs = []
+    epoch_accs = []
     # reload history
     if reload_ and os.path.exists(saveto):
         rmodel = numpy.load(saveto)
@@ -1348,7 +1353,7 @@ def train(dim_word=100,  # word vector dimensionality
 
             # verbose
             if numpy.mod(uidx, dispFreq) == 0:
-                print 'Epoch ', eidx, 'Update ', uidx, 'Cost ', cost, 'UD ', ud
+                log.info('Epoch: %d Update: %d Cost: %f UD: %f'%(eidx, uidx, cost, ud))
 
             # save the best model so far, in addition, save the latest model
             # into a separate file with the iteration number for external eval
@@ -1377,10 +1382,15 @@ def train(dim_word=100,  # word vector dimensionality
                 #print 'Here:'
                 #print tparams['ff_logit_W'].get_value()
                 #print unzip(tparams)
-                valid_errs, acc = pred_probs(f_log_probs, prepare_data,
+                valid_errs, valid_acc = pred_probs(f_log_probs, prepare_data,
                                         model_options, valid)
                 valid_err = valid_errs.mean()
                 history_errs.append(valid_err)
+
+                test_errs, test_acc = pred_probs(f_log_probs, prepare_data,
+                                                 model_options, test)
+                test_err = test_errs.mean()
+                history_accs.append(test_acc)
 
                 if uidx == 0 or valid_err <= numpy.array(history_errs).min():
                     best_p = unzip(tparams)
@@ -1396,7 +1406,7 @@ def train(dim_word=100,  # word vector dimensionality
                 if numpy.isnan(valid_err):
                     ipdb.set_trace()
 
-                print 'Valid ', valid_err, 'Acc ', acc 
+                log.info('Epoch: %d Update: %d ValidAcc: %f TestAcc: %f' % (eidx, uidx, valid_acc, test_acc))
 
             # finish after this many updates
             if uidx >= finish_after:
@@ -1405,6 +1415,13 @@ def train(dim_word=100,  # word vector dimensionality
                 break
 
         print 'Seen %d samples' % n_samples
+        epoch_accs.append(history_accs[-1])
+        if eidx > 0 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
+            bad_counter_acc += 1
+            if bad_counter_acc > 1:
+                print 'Early Stop Acc!'
+                estop = True
+                break
 
         if estop:
             break
