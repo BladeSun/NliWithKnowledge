@@ -211,28 +211,39 @@ def prepare_data(seqs_x, seqs_x_syn, seqs_y, seqs_y_syn, label, maxlen=None, n_w
     y_mask = numpy.zeros((maxlen_y, n_samples)).astype('float32')
     for idx, [s_x, s_x_syn, s_y, s_y_syn] in enumerate(zip(seqs_x, seqs_x_syn, seqs_y, seqs_y_syn)):
         x[0, idx] = 1
-        x[lengths_x[idx], idx] = 2
+        x[lengths_x[idx]+1, idx] = 2
         x[1:lengths_x[idx] + 1, idx] = s_x
         x_mask[:lengths_x[idx] + 2, idx] = 1.
         
         x_syn[0, idx] = 3 # 3 for none
-        x_syn[lengths_x[idx], idx] = 3
+        x_syn[lengths_x[idx]+1, idx] = 3
         x_syn[1:lengths_x[idx] + 1, idx] = s_x_syn
 
 
         y[0, idx] = 1
-        y[lengths_y[idx], idx] = 2
+        y[lengths_y[idx]+1, idx] = 2
         y[1:lengths_y[idx] + 1, idx] = s_y
         y_mask[:lengths_y[idx] + 2, idx] = 1.
 
         y_syn[0, idx] = 3 # 3 for none
-        y_syn[lengths_y[idx], idx] = 3
+        y_syn[lengths_y[idx]+1, idx] = 3
         y_syn[1:lengths_y[idx] + 1, idx] = s_y_syn
 
 
-    getbk = lambda sid, batch_id, target, bkdict: np.array([np.array(bkdict[sid][tid]).astype('float32') if tid in bk_vec[sid] else numpy.zeors(bk_dim).astype('float32') for tid in target[:, batch_id]]) 
-    bk_x = numpy.array([getbk(z[0], z[1], y, bk_for_x) if z[0] in bk_for_x else numpy.zeros((maxlen_y,bk_dim)).astype('float32') for z in zip(x_syn.reshape(-1).tolist(), range(n_samples)) * maxlen_x]).reshape(maxlen_x, n_samples, maxlen_y, bk_dim) 
-    bk_y = numpy.array([getbk(z[0], z[1], x, bk_for_y) if z[0] in bk_for_y else numpy.zeros((maxlen_x,bk_dim)).astype('float32') for z in zip(y_syn.reshape(-1).tolist(), range(n_samples)) * maxlen_y]).reshape(maxlen_y, n_samples, maxlen_x, bk_dim) 
+    getbk = lambda sid, batch_id, target, bkdict: numpy.array([numpy.array(bkdict[sid][tid]).astype('float32') if tid in bkdict[sid] else numpy.zeros(bk_dim).astype('float32') for tid in target[:, batch_id]]) 
+    bk_x = numpy.array([getbk(z[0], z[1], y_syn, bk_for_x) if z[0] in bk_for_x else numpy.zeros((maxlen_y,bk_dim)).astype('float32') for z in zip(x_syn.reshape(-1).tolist(), range(n_samples) * maxlen_x) ]).reshape(maxlen_x, n_samples, maxlen_y, bk_dim) 
+    #try:
+    #    tmpx =[]
+    #    for z in zip(x_syn.reshape(-1).tolist(), range(n_samples) * maxlen_x):
+    #        if z[0] in bk_for_x:
+    #            tmpx.append(getbk(z[0], z[1], y_syn, bk_for_x))
+    #        else:
+    #            tmpx.append(numpy.zeros((maxlen_y,bk_dim)).astype('float32')) 
+    #    bk_x = numpy.array(tmpx).reshape(maxlen_x, n_samples, maxlen_y, bk_dim) 
+    #except Exception:
+    #    ipdb.set_trace()
+  
+    bk_y = numpy.array([getbk(z[0], z[1], x_syn, bk_for_y) if z[0] in bk_for_y else numpy.zeros((maxlen_x,bk_dim)).astype('float32') for z in zip(y_syn.reshape(-1).tolist(), range(n_samples) * maxlen_y) ]).reshape(maxlen_y, n_samples, maxlen_x, bk_dim) 
 
     return x, x_mask, bk_x, y, y_mask, bk_y, flabel
 
@@ -246,8 +257,7 @@ def param_init_fflayer(options, params, prefix='ff', nin=None, nout=None,
     if nout is None:
         nout = options['dim_proj']
     params[_p(prefix, 'W')] = norm_weight(nin, nout, scale=0.01, ortho=ortho)
-    params[_p(prefix, 'b')] = numpy.zeros((nout,)).astype('float32')
-
+    params[_p(prefix, 'b')] = numpy.zeros((nout,)).astype('float32') 
     return params
 
 
@@ -1173,7 +1183,7 @@ def sgd(lr, tparams, grads, inp, cost):
 
 def train(dim_word=100,  # word vector dimensionality
           dim=1000,  # the number of LSTM units
-          bk_dim=10,  
+          bk_dim=13,  
           class_num=3,
           encoder='gru',
           decoder='gru_cond',
@@ -1361,6 +1371,7 @@ def train(dim_word=100,  # word vector dimensionality
     estop = False
     history_errs = []
     history_accs = []
+    epoch_accs = []
     # reload history
     if reload_ and os.path.exists(saveto):
         rmodel = numpy.load(saveto)
@@ -1493,7 +1504,8 @@ def train(dim_word=100,  # word vector dimensionality
 
         print 'Seen %d samples' % n_samples
         #test acc after one epoch
-        if history_accs[-1] <= numpy.array(history_accs)[:-1].max():
+        epoch_accs.append(history_accs[-1])
+        if epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
             bad_counter_acc += 1
             if bad_counter_acc > 1:
                 print 'Early Stop Acc!'
