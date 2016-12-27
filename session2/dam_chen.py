@@ -1415,10 +1415,11 @@ def train(dim_word=100,  # word vector dimensionality
                 break
 
         print 'Seen %d samples' % n_samples
-        epoch_accs.append(history_accs[-1])
-        if eidx > 0 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
+        if len(history_accs) > 0:
+            epoch_accs.append(history_accs[-1])
+        if len(epoch_accs) > 1 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
             bad_counter_acc += 1
-            if bad_counter_acc > 1:
+            if bad_counter_acc > 2:
                 print 'Early Stop Acc!'
                 estop = True
                 break
@@ -1430,10 +1431,10 @@ def train(dim_word=100,  # word vector dimensionality
         zipp(best_p, tparams)
 
     use_noise.set_value(0.)
-    valid_err, acc = pred_probs(f_log_probs, prepare_data,
-                           model_options, valid).mean()
+    valid_err, test_acc = pred_probs(f_log_probs, prepare_data,
+                           model_options, test)
 
-    print 'Valid ', valid_err, 'Acc ', acc 
+    print 'test acc', test_acc 
 
     params = copy.copy(best_p)
     numpy.savez(saveto, zipped_params=best_p,
@@ -1441,7 +1442,7 @@ def train(dim_word=100,  # word vector dimensionality
                 uidx=uidx,
                 **params)
 
-    return valid_err
+    return test_acc
 
 
 if __name__ == '__main__':

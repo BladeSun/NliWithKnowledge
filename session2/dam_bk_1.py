@@ -230,7 +230,7 @@ def prepare_data(seqs_x, seqs_x_syn, seqs_y, seqs_y_syn, label, maxlen=None, n_w
         y_syn[1:lengths_y[idx] + 1, idx] = s_y_syn
 
 
-    getbk = lambda sid, batch_id, target, bkdict: numpy.array([numpy.array(bkdict[sid][tid]).astype('float32') if tid in bkdict[sid] else numpy.zeors(bk_dim).astype('float32') for tid in target[:, batch_id]])
+    getbk = lambda sid, batch_id, target, bkdict: numpy.array([numpy.array(bkdict[sid][tid]).astype('float32') if tid in bkdict[sid] else numpy.zeros(bk_dim).astype('float32') for tid in target[:, batch_id]])
     bk_x = numpy.array([getbk(z[0], z[1], y_syn, bk_for_x) if z[0] in bk_for_x else numpy.zeros((maxlen_y,bk_dim)).astype('float32') for z in zip(x_syn.reshape(-1).tolist(), range(n_samples) * maxlen_x) ]).reshape(maxlen_x, n_samples, maxlen_y, bk_dim)
     bk_y = numpy.array([getbk(z[0], z[1], x_syn, bk_for_y) if z[0] in bk_for_y else numpy.zeros((maxlen_x,bk_dim)).astype('float32') for z in zip(y_syn.reshape(-1).tolist(), range(n_samples) * maxlen_y) ]).reshape(maxlen_y, n_samples, maxlen_x, bk_dim)
     return x, x_mask, bk_x, y, y_mask, bk_y, flabel
@@ -1490,10 +1490,11 @@ def train(dim_word=100,  # word vector dimensionality
                 break
 
         print 'Seen %d samples' % n_samples
-        epoch_accs.append(history_accs[-1])
-        if eidx > 0 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
+        if len(history_accs) > 0:
+            epoch_accs.append(history_accs[-1])
+        if len(epoch_accs) > 1 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
             bad_counter_acc += 1
-            if bad_counter_acc > 1:
+            if bad_counter_acc > 2:
                 print 'Early Stop Acc!'
                 estop = True
                 break
@@ -1505,10 +1506,10 @@ def train(dim_word=100,  # word vector dimensionality
         zipp(best_p, tparams)
 
     use_noise.set_value(0.)
-    valid_err, acc = pred_probs(f_log_probs, prepare_data,
-                           model_options, valid).mean()
+    test_err, acc = pred_probs(f_log_probs, prepare_data,
+                           model_options, test)
 
-    print 'Valid ', valid_err, 'Acc ', acc 
+    print 'Test acc ', acc 
 
     params = copy.copy(best_p)
     numpy.savez(saveto, zipped_params=best_p,

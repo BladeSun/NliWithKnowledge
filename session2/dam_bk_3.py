@@ -1223,6 +1223,12 @@ def train(dim_word=100,  # word vector dimensionality
               '../data/test_label.tok',
               '../data/test_syn_h.syntok',
               '../data/test_syn_t.syntok'],
+          check_datasets=[
+              '../data/check_h.tok',
+              '../data/check_t.tok',
+              '../data/check_label.tok',
+              '../data/check_syn_h.syntok',
+              '../data/check_syn_t.syntok'],
           dictionaries=[
               '../data/snli_dict.pkl',
               '../data/bk_dict.pkl'],
@@ -1287,6 +1293,12 @@ def train(dim_word=100,  # word vector dimensionality
                          maxlen=maxlen)
     test = TextIterator(test_datasets[0], test_datasets[1],
                         test_datasets[2], test_datasets[3], test_datasets[4],
+                        dictionaries[0], dictionaries[1],
+                        n_words_source=n_words_src, n_words_target=n_words,
+                        batch_size=valid_batch_size,
+                        maxlen=maxlen)
+    check = TextIterator(check_datasets[0], check_datasets[1],
+                        check_datasets[2], check_datasets[3], check_datasets[4],
                         dictionaries[0], dictionaries[1],
                         n_words_source=n_words_src, n_words_target=n_words,
                         batch_size=valid_batch_size,
@@ -1504,8 +1516,9 @@ def train(dim_word=100,  # word vector dimensionality
 
         print 'Seen %d samples' % n_samples
         #test acc after one epoch
-        epoch_accs.append(history_accs[-1])
-        if eidx >0 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
+        if len(history_accs) > 0:
+            epoch_accs.append(history_accs[-1])
+        if len(epoch_accs) > 1 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
             bad_counter_acc += 1
             if bad_counter_acc > 1:
                 print 'Early Stop Acc!'
@@ -1519,10 +1532,10 @@ def train(dim_word=100,  # word vector dimensionality
         zipp(best_p, tparams)
 
     use_noise.set_value(0.)
-    valid_err, acc = pred_probs(f_log_probs, prepare_data,
-                           model_options, valid).mean()
+    test_err, acc = pred_probs(f_log_probs, prepare_data,
+                           model_options, test)
 
-    print 'Valid ', valid_err, 'Acc ', acc 
+    print 'Test Acc ', acc 
 
     params = copy.copy(best_p)
     numpy.savez(saveto, zipped_params=best_p,
