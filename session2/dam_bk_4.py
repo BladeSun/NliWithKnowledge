@@ -1,3 +1,4 @@
+
 '''
 Build a neural machine translation model with soft attention
 '''
@@ -14,6 +15,7 @@ import os
 import warnings
 import sys
 import time
+import logging
 
 from collections import OrderedDict
 
@@ -210,32 +212,43 @@ def prepare_data(seqs_x, seqs_x_syn, seqs_y, seqs_y_syn, label, maxlen=None, n_w
     y_mask = numpy.zeros((maxlen_y, n_samples)).astype('float32')
     for idx, [s_x, s_x_syn, s_y, s_y_syn] in enumerate(zip(seqs_x, seqs_x_syn, seqs_y, seqs_y_syn)):
         x[0, idx] = 1
-        x[lengths_x[idx], idx] = 2
+        x[lengths_x[idx]+1, idx] = 2
         x[1:lengths_x[idx] + 1, idx] = s_x
         x_mask[:lengths_x[idx] + 2, idx] = 1.
-        
+
         x_syn[0, idx] = 3 # 3 for none
-        x_syn[lengths_x[idx], idx] = 3
+        x_syn[lengths_x[idx]+1, idx] = 3
         x_syn[1:lengths_x[idx] + 1, idx] = s_x_syn
 
 
         y[0, idx] = 1
-        y[lengths_y[idx], idx] = 2
+        y[lengths_y[idx]+1, idx] = 2
         y[1:lengths_y[idx] + 1, idx] = s_y
         y_mask[:lengths_y[idx] + 2, idx] = 1.
 
         y_syn[0, idx] = 3 # 3 for none
-        y_syn[lengths_y[idx], idx] = 3
+        y_syn[lengths_y[idx]+1, idx] = 3
         y_syn[1:lengths_y[idx] + 1, idx] = s_y_syn
 
 
-    getbk = lambda sid, batch_id, target, bkdict: np.array([np.array(bkdict[sid][tid]).astype('float32') if tid in bk_vec[sid] else numpy.zeors(bk_dim).astype('float32') for tid in target[:, batch_id]]) 
-    bk_x = numpy.array([getbk(z[0], z[1], y, bk_for_x) if z[0] in bk_for_x else numpy.zeros((maxlen_y,bk_dim)).astype('float32') for z in zip(x_syn.reshape(-1).tolist(), range(n_samples)) * maxlen_x]).reshape(maxlen_x, n_samples, maxlen_y, bk_dim) 
-    bk_y = numpy.array([getbk(z[0], z[1], x, bk_for_y) if z[0] in bk_for_y else numpy.zeros((maxlen_x,bk_dim)).astype('float32') for z in zip(y_syn.reshape(-1).tolist(), range(n_samples)) * maxlen_y]).reshape(maxlen_y, n_samples, maxlen_x, bk_dim) 
+    getbk = lambda sid, batch_id, target, bkdict: numpy.array([numpy.array(bkdict[sid][tid]).astype('float32') if tid in bkdict[sid] else numpy.zeros(bk_dim).astype('float32') for tid in target[:, batch_id]])
+    bk_x = numpy.array([getbk(z[0], z[1], y_syn, bk_for_x) if z[0] in bk_for_x else numpy.zeros((maxlen_y,bk_dim)).astype('float32') for z in zip(x_syn.reshape(-1).tolist(), range(n_samples) * maxlen_x) ]).reshape(maxlen_x, n_samples, maxlen_y, bk_dim)
+    #try:
+    #    tmpx =[]
+    #    for z in zip(x_syn.reshape(-1).tolist(), range(n_samples) * maxlen_x):
+    #        if z[0] in bk_for_x:
+    #            tmpx.append(getbk(z[0], z[1], y_syn, bk_for_x))
+    #        else:
+    #            tmpx.append(numpy.zeros((maxlen_y,bk_dim)).astype('float32'))
+    #    bk_x = numpy.array(tmpx).reshape(maxlen_x, n_samples, maxlen_y, bk_dim)
+    #except Exception:
+    #    ipdb.set_trace()
+
+    bk_y = numpy.array([getbk(z[0], z[1], x_syn, bk_for_y) if z[0] in bk_for_y else numpy.zeros((maxlen_x,bk_dim)).astype('float32') for z in zip(y_syn.reshape(-1).tolist(), range(n_samples) * maxlen_y) ]).reshape(maxlen_y, n_samples, maxlen_x, bk_dim)
 
     return x, x_mask, bk_x, y, y_mask, bk_y, flabel
 
-    
+
 
 # feedforward layer: affine transformation + point-wise nonlinearity
 def param_init_fflayer(options, params, prefix='ff', nin=None, nout=None,
@@ -246,7 +259,6 @@ def param_init_fflayer(options, params, prefix='ff', nin=None, nout=None,
         nout = options['dim_proj']
     params[_p(prefix, 'W')] = norm_weight(nin, nout, scale=0.01, ortho=ortho)
     params[_p(prefix, 'b')] = numpy.zeros((nout,)).astype('float32')
-
     return params
 
 
@@ -692,7 +704,7 @@ def build_dam(tparams, options):
     #proj_t = get_layer('funcf_layer')[1](tparams, emb_t, options,
     #                                     prefix='funcf')
     weight_matrix = tensor.batched_dot(emb_h.dimshuffle(1, 0, 2), emb_t.dimshuffle(1, 2, 0))
-    
+
     weight_matrix_1 = tensor.exp(weight_matrix - weight_matrix.max(1, keepdims=True)).dimshuffle(1,2,0)
     weight_matrix_2 = tensor.exp(weight_matrix - weight_matrix.max(2, keepdims=True)).dimshuffle(1,2,0)
 
@@ -702,13 +714,13 @@ def build_dam(tparams, options):
     beta_weight = weight_matrix_2 * y_mask.dimshuffle('x', 0, 1)/ weight_matrix_2.sum(1, keepdims=True)
 
     #bk_y = bk_y.dimshuffle(2, 0, 1, 3)
-    emb_h_bk = theano.tensor.repeat(emb_h[:,None,:,:],repeats=n_timesteps_t, axis=1)  
+    emb_h_bk = theano.tensor.repeat(emb_h[:,None,:,:],repeats=n_timesteps_t, axis=1)
     emb_h_bk = theano.tensor.concatenate([emb_h_bk,bk_y.dimshuffle(2,0,1,3)], axis=3)
     emb_h_bk = get_layer('ff')[1](tparams, emb_h_bk, options,prefix='bkProj', activ='relu')
 
     # lenH * lenT * bachSize * dim
     #bk_x = bk_x.dimshuffle(0, 2, 1, 3)
-    emb_t_bk = theano.tensor.repeat(emb_t[None,:,:,:],repeats=n_timesteps_h, axis=0)  
+    emb_t_bk = theano.tensor.repeat(emb_t[None,:,:,:],repeats=n_timesteps_h, axis=0)
     emb_t_bk = concatenate([emb_t_bk,bk_x.dimshuffle(0,2,1,3)], axis=3)
     emb_t_bk = get_layer('ff')[1](tparams, emb_t_bk, options,prefix='bkProj', activ='relu')
 
@@ -1035,8 +1047,8 @@ def pred_probs(f_log_probs, prepare_data, options, iterator, verbose=False):
         n_done += len(x)
         all_num += len(label)
 
-        x, x_mask, bk_x, y, y_mask, bk_y, label = prepare_data(x, x_syn, y, y_syn, label, 
-                                                n_words_src=options['n_words_src'], bk_for_x=options['bk_for_x'], 
+        x, x_mask, bk_x, y, y_mask, bk_y, label = prepare_data(x, x_syn, y, y_syn, label,
+                                                n_words_src=options['n_words_src'], bk_for_x=options['bk_for_x'],
                                                 bk_for_y=options['bk_for_y'], bk_dim=options['bk_dim'],
                                                maxlen= options['maxlen'],n_words=options['n_words'])
 
@@ -1050,9 +1062,9 @@ def pred_probs(f_log_probs, prepare_data, options, iterator, verbose=False):
         if verbose:
             print >> sys.stderr, '%d samples computed' % (n_done)
 
-        correct_num += (label == predict_label).sum() 
+        correct_num += (label == predict_label).sum()
 
-    print 'correct ', correct_num, 'all ', all_num 
+    print 'correct ', correct_num, 'all ', all_num
     return numpy.array(probs), correct_num/all_num
 
 
@@ -1172,11 +1184,11 @@ def sgd(lr, tparams, grads, inp, cost):
 
 def train(dim_word=100,  # word vector dimensionality
           dim=1000,  # the number of LSTM units
-          bk_dim=10,  
+          bk_dim=13,
           class_num=3,
           encoder='gru',
           decoder='gru_cond',
-          patience=10,  # early stopping patience
+          patience=5,  # early stopping patience
           max_epochs=5000,
           finish_after=10000000,  # finish after this many updates
           dispFreq=100,
@@ -1212,6 +1224,12 @@ def train(dim_word=100,  # word vector dimensionality
               '../data/test_label.tok',
               '../data/test_syn_h.syntok',
               '../data/test_syn_t.syntok'],
+          check_datasets=[
+              '../data/check_h.tok',
+              '../data/check_t.tok',
+              '../data/check_label.tok',
+              '../data/check_syn_h.syntok',
+              '../data/check_syn_t.syntok'],
           dictionaries=[
               '../data/snli_dict.pkl',
               '../data/bk_dict.pkl'],
@@ -1225,6 +1243,8 @@ def train(dim_word=100,  # word vector dimensionality
           overwrite=False):
     # Model options
     model_options = locals().copy()
+    print model_options
+    log = logging.getLogger(os.path.basename(__file__).split('.')[0])
 
     # load dictionaries and invert them
     worddicts = [None] * len(dictionaries)
@@ -1274,6 +1294,12 @@ def train(dim_word=100,  # word vector dimensionality
                          maxlen=maxlen)
     test = TextIterator(test_datasets[0], test_datasets[1],
                         test_datasets[2], test_datasets[3], test_datasets[4],
+                        dictionaries[0], dictionaries[1],
+                        n_words_source=n_words_src, n_words_target=n_words,
+                        batch_size=valid_batch_size,
+                        maxlen=maxlen)
+    check = TextIterator(check_datasets[0], check_datasets[1],
+                        check_datasets[2], check_datasets[3], check_datasets[4],
                         dictionaries[0], dictionaries[1],
                         n_words_source=n_words_src, n_words_target=n_words,
                         batch_size=valid_batch_size,
@@ -1353,9 +1379,12 @@ def train(dim_word=100,  # word vector dimensionality
 
     best_p = None
     bad_counter = 0
+    bad_counter_acc = 0
     uidx = 0
     estop = False
     history_errs = []
+    history_accs = []
+    epoch_accs = []
     # reload history
     if reload_ and os.path.exists(saveto):
         rmodel = numpy.load(saveto)
@@ -1370,6 +1399,8 @@ def train(dim_word=100,  # word vector dimensionality
     #if sampleFreq == -1:
     #    sampleFreq = len(train[0]) / batch_size
 
+
+
     for eidx in xrange(max_epochs):
         n_samples = 0
 
@@ -1379,13 +1410,13 @@ def train(dim_word=100,  # word vector dimensionality
             use_noise.set_value(1.)
             try:
                 x, x_mask, bk_x, y, y_mask, bk_y, label = prepare_data(x, x_syn, y, y_syn, label, maxlen=maxlen,
-                                                n_words_src=n_words_src, bk_for_x=model_options['bk_for_x'], 
+                                                n_words_src=n_words_src, bk_for_x=model_options['bk_for_x'],
                                                 bk_for_y=model_options['bk_for_y'], bk_dim=model_options['bk_dim'],
                                                 n_words=n_words)
-            
+
             except ValueError:
                 print prepare_data(x, x_syn, y, y_syn, label, maxlen=maxlen,
-                                                n_words_src=n_words_src, bk_for_x=model_options['bk_for_x'], 
+                                                n_words_src=n_words_src, bk_for_x=model_options['bk_for_x'],
                                                 bk_for_y=model_options['bk_for_y'], bk_dim=model_options['bk_dim'],
                                                 n_words=n_words)
                 raise
@@ -1419,8 +1450,8 @@ def train(dim_word=100,  # word vector dimensionality
 
             # verbose
             if numpy.mod(uidx, dispFreq) == 0:
+                log.info('Epoch: %d Update: %d Cost: %f UD: %f'%(eidx, uidx, cost, ud))
                 #print 'Epoch ', eidx, 'Update ', uidx, 'Cost ', cost, 'UD ', ud
-                print '[%s] Epoch: %n Update: %n Cost: %f UD: %f'%(time.ctime(), eidx, uidx, cost, ud)
 
             # save the best model so far, in addition, save the latest model
             # into a separate file with the iteration number for external eval
@@ -1449,10 +1480,16 @@ def train(dim_word=100,  # word vector dimensionality
                 #print 'Here:'
                 #print tparams['ff_logit_W'].get_value()
                 #print unzip(tparams)
-                valid_errs, acc = pred_probs(f_log_probs, prepare_data,
+                valid_errs, valid_acc = pred_probs(f_log_probs, prepare_data,
                                         model_options, valid)
                 valid_err = valid_errs.mean()
                 history_errs.append(valid_err)
+
+                test_errs, test_acc = pred_probs(f_log_probs, prepare_data,
+                                        model_options, test)
+                test_err = test_errs.mean()
+                history_accs.append(test_acc)
+                #history_errs.append(valid_err)
 
                 if uidx == 0 or valid_err <= numpy.array(history_errs).min():
                     best_p = unzip(tparams)
@@ -1468,7 +1505,7 @@ def train(dim_word=100,  # word vector dimensionality
                 if numpy.isnan(valid_err):
                     ipdb.set_trace()
 
-                print 'Valid ', valid_err, 'Acc ', acc 
+                log.info('Epoch: %d Update: %d ValidAcc: %f TestAcc: %f' % (eidx, uidx, valid_acc, test_acc))
 
             # finish after this many updates
             if uidx >= finish_after:
@@ -1476,7 +1513,18 @@ def train(dim_word=100,  # word vector dimensionality
                 estop = True
                 break
 
+            epochFlag = False
+
         print 'Seen %d samples' % n_samples
+        #test acc after one epoch
+        if len(history_accs) > 0:
+            epoch_accs.append(history_accs[-1])
+        if len(epoch_accs) > 1 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
+            bad_counter_acc += 1
+            if bad_counter_acc > 1:
+                print 'Early Stop Acc!'
+                estop = True
+                break
 
         if estop:
             break
@@ -1485,10 +1533,10 @@ def train(dim_word=100,  # word vector dimensionality
         zipp(best_p, tparams)
 
     use_noise.set_value(0.)
-    valid_err, acc = pred_probs(f_log_probs, prepare_data,
-                           model_options, valid).mean()
+    test_err, acc = pred_probs(f_log_probs, prepare_data,
+                           model_options, test)
 
-    print 'Valid ', valid_err, 'Acc ', acc 
+    print 'Test Acc ', acc
 
     params = copy.copy(best_p)
     numpy.savez(saveto, zipped_params=best_p,
