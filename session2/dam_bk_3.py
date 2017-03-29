@@ -1206,20 +1206,20 @@ def train(dim_word=100,  # word vector dimensionality
           saveFreq=1000,  # save the parameters after every saveFreq updates
           sampleFreq=100,  # generate some samples after every sampleFreq
           train_datasets=[
-              '../data/train_h.tok',
-              '../data/train_t.tok',
+              '../data/train_h_fix.tok',
+              '../data/train_t_fix.tok',
               '../data/train_label.tok',
               '../data/train_syn_h.syntok',
               '../data/train_syn_t.syntok'],
           valid_datasets=[
-              '../data/dev_h.tok',
-              '../data/dev_t.tok',
+              '../data/dev_h_fix.tok',
+              '../data/dev_t_fix.tok',
               '../data/dev_label.tok',
               '../data/dev_syn_h.syntok',
               '../data/dev_syn_t.syntok'],
           test_datasets=[
-              '../data/test_h.tok',
-              '../data/test_t.tok',
+              '../data/test_h_fix.tok',
+              '../data/test_t_fix.tok',
               '../data/test_label.tok',
               '../data/test_syn_h.syntok',
               '../data/test_syn_t.syntok'],

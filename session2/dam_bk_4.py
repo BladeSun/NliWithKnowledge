@@ -663,7 +663,7 @@ def init_params(options):
                                 nin=options['dim'] * 2 + options['bk_dim'], nout=options['dim'],
                                 ortho=False)
     params = get_layer('ff')[0](options, params, prefix='funcG',
-                                nin=options['dim'] * 2, nout=options['dim'],
+                                nin=options['dim'], nout=options['dim'],
                                 ortho=False)
     # readout
     params = get_layer('ff')[0](options, params, prefix='ff_logit',
@@ -1520,12 +1520,12 @@ def train(dim_word=100,  # word vector dimensionality
         # test acc after one epoch
         if len(history_accs) > 0:
             epoch_accs.append(history_accs[-1])
-        if len(epoch_accs) > 1 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
-            bad_counter_acc += 1
-            if bad_counter_acc > 1:
-                print 'Early Stop Acc!'
-                estop = True
-                break
+        #if len(epoch_accs) > 1 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
+        #    bad_counter_acc += 1
+        #    if bad_counter_acc > 1:
+        #        print 'Early Stop Acc!'
+        #        estop = True
+        #        break
 
         if estop:
             break
