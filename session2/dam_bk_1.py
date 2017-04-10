@@ -576,7 +576,7 @@ def gru_cond_layer(tparams, state_below, options, prefix='gru',
 
 
 '''
-# initialize all parameters
+
 def init_params(options):
     params = OrderedDict()
 
@@ -628,6 +628,8 @@ def init_params(options):
     # embedding
     #params['Wemb'] = norm_weight(options['dict_size'], options['dim_word'])
     params['Wemb'] = options['allembs']
+    params['op_weights'] = norm_weight(options['op_num'] * options['dim'], options['dim'])
+    params['op_V'] = norm_weight(options['op_num'])
     # params['Wemb_dec'] = norm_weight(options['n_words'], options['dim_word'])
 
     # funcf
@@ -695,9 +697,30 @@ def build_dam(tparams, options):
     #proj_t = get_layer('funcf_layer')[1](tparams, emb_t, options,
     #                                     prefix='funcf')
     weight_matrix = tensor.batched_dot(emb_h.dimshuffle(1, 0, 2), emb_t.dimshuffle(1, 2, 0))
-    weight_bk = get_layer('ff')[1](tparams, bk_x.dimshuffle(1, 0, 2, 3), options,prefix='WeightW', activ='linear') 
-    weight_matrix = weight_matrix + weight_bk.reshape([n_samples, n_timesteps_h, n_timesteps_t]) 
-    
+
+
+    # bk_x
+    bk_x = bk_x.dimshuffle(1,0,2,3)
+    bk_x = bk_x[:,:,:,(0,1,12)]
+    bk_m = theano.tensor.repeat(bk_x, repeats=options['dim_word'], axis=3)
+    bk_op = bk_m[:,:,:,:,None] * tparams['op_weights'][None,None,None,None,:,:]
+
+    bk_op = bk_op.reshape([n_samples, n_timesteps_h, n_timesteps_t, options['op_num'] * options['dim'],options['dim']])
+    bk_op = bk_op.dimshuffle(0,1,2,4,3)
+
+    emb_h_tmp = emb_h.dimshuffle(1,0,'x',2) + tensor.zeros([n_samples,n_timesteps_h,n_timesteps_t,options['dim']])
+    emb_h_tmp = emb_h_tmp.reshape([-1, options['dim_word']])
+    bk_op = bk_op.reshape([-1, options['dim']])
+    r_hop = tensor.batched_dot(emb_h_tmp, bk_op)
+
+    emb_t_tmp = emb_t.dimshuffle(1,'x',0,2) + tensor.zeros([n_samples,n_timesteps_h,n_timesteps_t,options['dim']])
+    emb_t_tmp = emb_t_tmp.reshape([-1, options['dim_word']])
+
+    weight_bk = (r_hop.reshape([-1, options['op_num'], options['dim']]) * emb_t_tmp.dimshuffle(0, 'x', 1)).sum(2)
+    weight_bk = tensor.dot(tparams['op_V'], weight_bk)
+
+    weight_matrix = weight_matrix + weight_bk.reshape([n_samples, n_timesteps_h, n_timesteps_t])
+
     weight_matrix_1 = tensor.exp(weight_matrix - weight_matrix.max(1, keepdims=True)).dimshuffle(1,2,0)
     weight_matrix_2 = tensor.exp(weight_matrix - weight_matrix.max(2, keepdims=True)).dimshuffle(1,2,0)
 
@@ -1179,6 +1202,7 @@ def train(dim_word=100,  # word vector dimensionality
           dim=1000,  # the number of LSTM units
           bk_dim=10,  
           class_num=3,
+          op_num=3,
           encoder='gru',
           decoder='gru_cond',
           patience=10,  # early stopping patience
