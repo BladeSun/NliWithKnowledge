@@ -43,6 +43,7 @@ class TextIterator:
         self.k = batch_size * 20
 
         self.end_of_data = False
+        self.countBlank = 0
 
     def __iter__(self):
         return self
@@ -151,6 +152,9 @@ class TextIterator:
 
                 #need fix here!!!!
                 if len(ss) != len(ss_syn) or len(tt) != len(tt_syn):
+                    self.countBlank += 1
+                    print self.countBlank
+                    #raise Exception, 'orign != syn'
                     continue
 
                 source.append(ss)

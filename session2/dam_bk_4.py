@@ -1,4 +1,3 @@
-
 '''
 Build a neural machine translation model with soft attention
 '''
@@ -111,6 +110,7 @@ def norm_weight(nin, nout=None, scale=0.01, ortho=True):
 def relu(x):
     return tensor.nnet.relu(x)
 
+
 def tanh(x):
     return tensor.tanh(x)
 
@@ -179,7 +179,8 @@ def prepare_data(seqs_x, seqs_x_syn, seqs_y, seqs_y_syn, label, maxlen=None, n_w
         new_lengths_x = []
         new_lengths_y = []
         new_label = []
-        for l_x, s_x, s_x_syn, l_y, s_y, s_y_syn, ll in zip(lengths_x, seqs_x, seqs_x_syn, lengths_y, seqs_y, seqs_y_syn, label):
+        for l_x, s_x, s_x_syn, l_y, s_y, s_y_syn, ll in zip(lengths_x, seqs_x, seqs_x_syn, lengths_y, seqs_y,
+                                                            seqs_y_syn, label):
             if l_x < maxlen and l_y < maxlen:
                 new_seqs_x.append(s_x)
                 new_seqs_x_syn.append(s_x_syn)
@@ -212,28 +213,32 @@ def prepare_data(seqs_x, seqs_x_syn, seqs_y, seqs_y_syn, label, maxlen=None, n_w
     y_mask = numpy.zeros((maxlen_y, n_samples)).astype('float32')
     for idx, [s_x, s_x_syn, s_y, s_y_syn] in enumerate(zip(seqs_x, seqs_x_syn, seqs_y, seqs_y_syn)):
         x[0, idx] = 1
-        x[lengths_x[idx]+1, idx] = 2
+        x[lengths_x[idx] + 1, idx] = 2
         x[1:lengths_x[idx] + 1, idx] = s_x
         x_mask[:lengths_x[idx] + 2, idx] = 1.
 
-        x_syn[0, idx] = 3 # 3 for none
-        x_syn[lengths_x[idx]+1, idx] = 3
+        x_syn[0, idx] = 3  # 3 for none
+        x_syn[lengths_x[idx] + 1, idx] = 3
         x_syn[1:lengths_x[idx] + 1, idx] = s_x_syn
 
-
         y[0, idx] = 1
-        y[lengths_y[idx]+1, idx] = 2
+        y[lengths_y[idx] + 1, idx] = 2
         y[1:lengths_y[idx] + 1, idx] = s_y
         y_mask[:lengths_y[idx] + 2, idx] = 1.
 
-        y_syn[0, idx] = 3 # 3 for none
-        y_syn[lengths_y[idx]+1, idx] = 3
+        y_syn[0, idx] = 3  # 3 for none
+        y_syn[lengths_y[idx] + 1, idx] = 3
         y_syn[1:lengths_y[idx] + 1, idx] = s_y_syn
 
-
-    getbk = lambda sid, batch_id, target, bkdict: numpy.array([numpy.array(bkdict[sid][tid]).astype('float32') if tid in bkdict[sid] else numpy.zeros(bk_dim).astype('float32') for tid in target[:, batch_id]])
-    bk_x = numpy.array([getbk(z[0], z[1], y_syn, bk_for_x) if z[0] in bk_for_x else numpy.zeros((maxlen_y,bk_dim)).astype('float32') for z in zip(x_syn.reshape(-1).tolist(), range(n_samples) * maxlen_x) ]).reshape(maxlen_x, n_samples, maxlen_y, bk_dim)
-    #try:
+    getbk = lambda sid, batch_id, target, bkdict: numpy.array([numpy.array(bkdict[sid][tid]).astype('float32') if tid in
+                                                                                                                  bkdict[
+                                                                                                                      sid] else numpy.zeros(
+        bk_dim).astype('float32') for tid in target[:, batch_id]])
+    bk_x = numpy.array(
+        [getbk(z[0], z[1], y_syn, bk_for_x) if z[0] in bk_for_x else numpy.zeros((maxlen_y, bk_dim)).astype('float32')
+         for z in zip(x_syn.reshape(-1).tolist(), range(n_samples) * maxlen_x)]).reshape(maxlen_x, n_samples, maxlen_y,
+                                                                                         bk_dim)
+    # try:
     #    tmpx =[]
     #    for z in zip(x_syn.reshape(-1).tolist(), range(n_samples) * maxlen_x):
     #        if z[0] in bk_for_x:
@@ -241,13 +246,15 @@ def prepare_data(seqs_x, seqs_x_syn, seqs_y, seqs_y_syn, label, maxlen=None, n_w
     #        else:
     #            tmpx.append(numpy.zeros((maxlen_y,bk_dim)).astype('float32'))
     #    bk_x = numpy.array(tmpx).reshape(maxlen_x, n_samples, maxlen_y, bk_dim)
-    #except Exception:
+    # except Exception:
     #    ipdb.set_trace()
 
-    bk_y = numpy.array([getbk(z[0], z[1], x_syn, bk_for_y) if z[0] in bk_for_y else numpy.zeros((maxlen_x,bk_dim)).astype('float32') for z in zip(y_syn.reshape(-1).tolist(), range(n_samples) * maxlen_y) ]).reshape(maxlen_y, n_samples, maxlen_x, bk_dim)
+    bk_y = numpy.array(
+        [getbk(z[0], z[1], x_syn, bk_for_y) if z[0] in bk_for_y else numpy.zeros((maxlen_x, bk_dim)).astype('float32')
+         for z in zip(y_syn.reshape(-1).tolist(), range(n_samples) * maxlen_y)]).reshape(maxlen_y, n_samples, maxlen_x,
+                                                                                         bk_dim)
 
     return x, x_mask, bk_x, y, y_mask, bk_y, flabel
-
 
 
 # feedforward layer: affine transformation + point-wise nonlinearity
@@ -638,25 +645,25 @@ def init_params(options):
     params = OrderedDict()
 
     # embedding
-    #params['Wemb'] = norm_weight(options['dict_size'], options['dim_word'])
+    # params['Wemb'] = norm_weight(options['dict_size'], options['dim_word'])
     params['Wemb'] = options['allembs']
     # params['Wemb_dec'] = norm_weight(options['n_words'], options['dim_word'])
 
     # funcf
-    #params = get_layer('funcf_layer')[0](options, params,
+    # params = get_layer('funcf_layer')[0](options, params,
     #                                     prefix='funcf',
     #                                     nin=options['dim_word'],
     #                                     nout=options['dim'])
     # funcG
-    #params = get_layer('funcf_layer')[0](options, params,
+    # params = get_layer('funcf_layer')[0](options, params,
     #                                     prefix='funcG',
     #                                     nin=options['dim_word'] * 2,
     #                                     nout=options['dim'])
     params = get_layer('ff')[0](options, params, prefix='bkProj',
-                                nin=options['dim'] + options['bk_dim'], nout=options['dim'],
+                                nin=options['dim'] * 2 + options['bk_dim'], nout=options['dim'],
                                 ortho=False)
     params = get_layer('ff')[0](options, params, prefix='funcG',
-                                nin=options['dim'] * 2, nout=options['dim'],
+                                nin=options['dim'], nout=options['dim'],
                                 ortho=False)
     # readout
     params = get_layer('ff')[0](options, params, prefix='ff_logit',
@@ -671,7 +678,6 @@ def init_params(options):
 
 
 def build_dam(tparams, options):
-
     trng = RandomStreams(1234)
     use_noise = theano.shared(numpy.float32(0.))
 
@@ -682,7 +688,7 @@ def build_dam(tparams, options):
     y = tensor.matrix('y', dtype='int64')
     bk_y = tensor.tensor4('y_bk', dtype='float32')
     y_mask = tensor.matrix('y_mask', dtype='float32')
-    #all_embs = tensor.matrix('emb', dtype='float32')
+    # all_embs = tensor.matrix('emb', dtype='float32')
     label = tensor.vector('label', dtype='int64')
 
     n_timesteps_h = x.shape[0]
@@ -699,41 +705,34 @@ def build_dam(tparams, options):
     if options['use_dropout']:
         emb_t = dropout_layer(emb_t, use_noise, trng)
 
-    #proj_h = get_layer('funcf_layer')[1](tparams, emb_h, options,
+    # proj_h = get_layer('funcf_layer')[1](tparams, emb_h, options,
     #                                     prefix='funcf')
-    #proj_t = get_layer('funcf_layer')[1](tparams, emb_t, options,
+    # proj_t = get_layer('funcf_layer')[1](tparams, emb_t, options,
     #                                     prefix='funcf')
     weight_matrix = tensor.batched_dot(emb_h.dimshuffle(1, 0, 2), emb_t.dimshuffle(1, 2, 0))
 
-    weight_matrix_1 = tensor.exp(weight_matrix - weight_matrix.max(1, keepdims=True)).dimshuffle(1,2,0)
-    weight_matrix_2 = tensor.exp(weight_matrix - weight_matrix.max(2, keepdims=True)).dimshuffle(1,2,0)
-
+    weight_matrix_1 = tensor.exp(weight_matrix - weight_matrix.max(1, keepdims=True)).dimshuffle(1, 2, 0)
+    weight_matrix_2 = tensor.exp(weight_matrix - weight_matrix.max(2, keepdims=True)).dimshuffle(1, 2, 0)
 
     #  lenH * lenT * batchSize
-    alpha_weight = weight_matrix_1 * x_mask.dimshuffle(0, 'x', 1)/ weight_matrix_1.sum(0, keepdims=True)
-    beta_weight = weight_matrix_2 * y_mask.dimshuffle('x', 0, 1)/ weight_matrix_2.sum(1, keepdims=True)
+    alpha_weight = weight_matrix_1 * x_mask.dimshuffle(0, 'x', 1) / weight_matrix_1.sum(0, keepdims=True)
+    beta_weight = weight_matrix_2 * y_mask.dimshuffle('x', 0, 1) / weight_matrix_2.sum(1, keepdims=True)
 
-    #bk_y = bk_y.dimshuffle(2, 0, 1, 3)
-    emb_h_bk = theano.tensor.repeat(emb_h[:,None,:,:],repeats=n_timesteps_t, axis=1)
-    emb_h_bk = theano.tensor.concatenate([emb_h_bk,bk_y.dimshuffle(2,0,1,3)], axis=3)
-    emb_h_bk = get_layer('ff')[1](tparams, emb_h_bk, options,prefix='bkProj', activ='relu')
+    bk_alpha = (bk_y.dimshuffle(2, 0, 1, 3) * alpha_weight.dimshuffle(0, 1, 2, 'x')).sum(0)
+    alpha = (emb_h.dimshuffle(0, 'x', 1, 2) * alpha_weight.dimshuffle(0, 1, 2, 'x')).sum(0)
 
-    # lenH * lenT * bachSize * dim
-    #bk_x = bk_x.dimshuffle(0, 2, 1, 3)
-    emb_t_bk = theano.tensor.repeat(emb_t[None,:,:,:],repeats=n_timesteps_h, axis=0)
-    emb_t_bk = concatenate([emb_t_bk,bk_x.dimshuffle(0,2,1,3)], axis=3)
-    emb_t_bk = get_layer('ff')[1](tparams, emb_t_bk, options,prefix='bkProj', activ='relu')
+    bk_beta = (bk_x.dimshuffle(0, 2, 1, 3) * beta_weight.dimshuffle(0, 1, 2, 'x')).sum(1)
+    beta = (emb_t.dimshuffle('x', 0, 1, 2) * beta_weight.dimshuffle(0, 1, 2, 'x')).sum(1)
 
-    #alpha = (emb_h_bk.dimshuffle(0, 'x', 1, 2) * alpha_weight.dimshuffle(0, 1, 2, 'x')).sum(0)
-    #beta = (emb_t_bk.dimshuffle('x', 0, 1, 2) * beta_weight.dimshuffle(0, 1, 2, 'x')).sum(1)
-    alpha = (emb_h_bk * alpha_weight.dimshuffle(0, 1, 2, 'x')).sum(0)
-    beta = (emb_t_bk * beta_weight.dimshuffle(0, 1, 2, 'x')).sum(1)
+    v1 = concatenate([emb_h, beta, bk_beta], axis=2)
+    v2 = concatenate([emb_t, alpha, bk_alpha], axis=2)
 
-    v1 = concatenate([emb_h, beta], axis=2)
-    v2 = concatenate([emb_t, alpha], axis=2)
 
-    proj_v1 = get_layer('ff')[1](tparams, v1, options,prefix='funcG', activ='relu')
-    proj_v2 = get_layer('ff')[1](tparams, v2, options, prefix='funcG', activ='relu')
+    bk_proj_v1 = get_layer('ff')[1](tparams, v1, options, prefix='bkProj', activ='relu')
+    bk_proj_v2 = get_layer('ff')[1](tparams, v2, options, prefix='bkProj', activ='relu')
+
+    proj_v1 = get_layer('ff')[1](tparams, bk_proj_v1, options, prefix='funcG', activ='relu')
+    proj_v2 = get_layer('ff')[1](tparams, bk_proj_v2, options, prefix='funcG', activ='relu')
 
     logit1 = (proj_v1 * x_mask[:, :, None]).sum(0)
     logit2 = (proj_v2 * y_mask[:, :, None]).sum(0)
@@ -748,9 +747,9 @@ def build_dam(tparams, options):
     logit = get_layer('ff')[1](tparams, logit, options, prefix='ff_logit_linear', activ='linear')
 
     probs = tensor.nnet.softmax(logit)
-    predict_label = probs.argmax(axis=1 )
+    predict_label = probs.argmax(axis=1)
 
-    #cost = -tensor.log(probs)[tensor.arange(label.shape[0]), label]
+    # cost = -tensor.log(probs)[tensor.arange(label.shape[0]), label]
     cost = tensor.nnet.categorical_crossentropy(probs, label)
 
     return trng, use_noise, x, x_mask, bk_x, y, y_mask, bk_y, label, predict_label, cost
@@ -1048,9 +1047,10 @@ def pred_probs(f_log_probs, prepare_data, options, iterator, verbose=False):
         all_num += len(label)
 
         x, x_mask, bk_x, y, y_mask, bk_y, label = prepare_data(x, x_syn, y, y_syn, label,
-                                                n_words_src=options['n_words_src'], bk_for_x=options['bk_for_x'],
-                                                bk_for_y=options['bk_for_y'], bk_dim=options['bk_dim'],
-                                               maxlen= options['maxlen'],n_words=options['n_words'])
+                                                               n_words_src=options['n_words_src'],
+                                                               bk_for_x=options['bk_for_x'],
+                                                               bk_for_y=options['bk_for_y'], bk_dim=options['bk_dim'],
+                                                               maxlen=options['maxlen'], n_words=options['n_words'])
 
         pprobs, predict_label = f_log_probs(x, x_mask, bk_x, y, y_mask, bk_y, label)
         for pp in pprobs:
@@ -1065,7 +1065,7 @@ def pred_probs(f_log_probs, prepare_data, options, iterator, verbose=False):
         correct_num += (label == predict_label).sum()
 
     print 'correct ', correct_num, 'all ', all_num
-    return numpy.array(probs), correct_num/all_num
+    return numpy.array(probs), correct_num / all_num
 
 
 # optimizers
@@ -1094,7 +1094,7 @@ def adam(lr, tparams, grads, inp, cost, beta1=0.9, beta2=0.999, e=1e-8):
         updates.append((v, v_t))
         updates.append((p, p_t))
     updates.append((t_prev, t))
-    upreturn = [ item for sublist in updates for item in sublist]
+    upreturn = [item for sublist in updates for item in sublist]
 
     f_update = theano.function([lr], upreturn, updates=updates,
                                on_unused_input='ignore', profile=profile)
@@ -1190,7 +1190,7 @@ def train(dim_word=100,  # word vector dimensionality
           decoder='gru_cond',
           patience=5,  # early stopping patience
           max_epochs=5000,
-          finish_after=10000000,  # finish after this many updates
+          finish_after=1000000000,  # finish after this many updates
           dispFreq=100,
           decay_c=0.,  # L2 regularization penalty
           alpha_c=0.,  # alignment regularization
@@ -1207,20 +1207,20 @@ def train(dim_word=100,  # word vector dimensionality
           saveFreq=1000,  # save the parameters after every saveFreq updates
           sampleFreq=100,  # generate some samples after every sampleFreq
           train_datasets=[
-              '../data/train_h.tok',
-              '../data/train_t.tok',
+              '../data/train_h_fix.tok',
+              '../data/train_t_fix.tok',
               '../data/train_label.tok',
               '../data/train_syn_h.syntok',
               '../data/train_syn_t.syntok'],
           valid_datasets=[
-              '../data/dev_h.tok',
-              '../data/dev_t.tok',
+              '../data/dev_h_fix.tok',
+              '../data/dev_t_fix.tok',
               '../data/dev_label.tok',
               '../data/dev_syn_h.syntok',
               '../data/dev_syn_t.syntok'],
           test_datasets=[
-              '../data/test_h.tok',
-              '../data/test_t.tok',
+              '../data/test_h_fix.tok',
+              '../data/test_t_fix.tok',
               '../data/test_label.tok',
               '../data/test_syn_h.syntok',
               '../data/test_syn_t.syntok'],
@@ -1259,7 +1259,7 @@ def train(dim_word=100,  # word vector dimensionality
     print 'Loading embedings ...'
     with open(embedings[0], 'rb') as f:
         pretrained_embs = pkl.load(f)
-        #pretrained_embs = theano.shared(pretrained_embs, name='pretrained_embs')
+        # pretrained_embs = theano.shared(pretrained_embs, name='pretrained_embs')
     print 'Done'
     model_options['allembs'] = pretrained_embs
 
@@ -1287,7 +1287,7 @@ def train(dim_word=100,  # word vector dimensionality
                          batch_size=batch_size,
                          maxlen=maxlen)
     valid = TextIterator(valid_datasets[0], valid_datasets[1],
-                         valid_datasets[2],valid_datasets[3],valid_datasets[4],
+                         valid_datasets[2], valid_datasets[3], valid_datasets[4],
                          dictionaries[0], dictionaries[1],
                          n_words_source=n_words_src, n_words_target=n_words,
                          batch_size=valid_batch_size,
@@ -1299,11 +1299,11 @@ def train(dim_word=100,  # word vector dimensionality
                         batch_size=valid_batch_size,
                         maxlen=maxlen)
     check = TextIterator(check_datasets[0], check_datasets[1],
-                        check_datasets[2], check_datasets[3], check_datasets[4],
-                        dictionaries[0], dictionaries[1],
-                        n_words_source=n_words_src, n_words_target=n_words,
-                        batch_size=valid_batch_size,
-                        maxlen=maxlen)
+                         check_datasets[2], check_datasets[3], check_datasets[4],
+                         dictionaries[0], dictionaries[1],
+                         n_words_source=n_words_src, n_words_target=n_words,
+                         batch_size=valid_batch_size,
+                         maxlen=maxlen)
 
     print 'Building model'
     params = init_params(model_options)
@@ -1313,7 +1313,6 @@ def train(dim_word=100,  # word vector dimensionality
         params = load_params(saveto, params)
 
     tparams = init_tparams(params)
-
 
     trng, use_noise, \
     x, x_mask, bk_x, y, y_mask, bk_y, label, predict_label, \
@@ -1341,7 +1340,7 @@ def train(dim_word=100,  # word vector dimensionality
     #     cost += weight_decay
 
     ## regularize the alpha weights
-    #if alpha_c > 0. and not model_options['decoder'].endswith('simple'):
+    # if alpha_c > 0. and not model_options['decoder'].endswith('simple'):
     #    alpha_c = theano.shared(numpy.float32(alpha_c), name='alpha_c')
     #    alpha_reg = alpha_c * (
     #        (tensor.cast(y_mask.sum(0) // x_mask.sum(0), 'float32')[:, None] -
@@ -1396,7 +1395,7 @@ def train(dim_word=100,  # word vector dimensionality
         validFreq = len(train[0]) / batch_size
     if saveFreq == -1:
         saveFreq = len(train[0]) / batch_size
-    #if sampleFreq == -1:
+    # if sampleFreq == -1:
     #    sampleFreq = len(train[0]) / batch_size
 
 
@@ -1410,15 +1409,17 @@ def train(dim_word=100,  # word vector dimensionality
             use_noise.set_value(1.)
             try:
                 x, x_mask, bk_x, y, y_mask, bk_y, label = prepare_data(x, x_syn, y, y_syn, label, maxlen=maxlen,
-                                                n_words_src=n_words_src, bk_for_x=model_options['bk_for_x'],
-                                                bk_for_y=model_options['bk_for_y'], bk_dim=model_options['bk_dim'],
-                                                n_words=n_words)
+                                                                       n_words_src=n_words_src,
+                                                                       bk_for_x=model_options['bk_for_x'],
+                                                                       bk_for_y=model_options['bk_for_y'],
+                                                                       bk_dim=model_options['bk_dim'],
+                                                                       n_words=n_words)
 
             except ValueError:
                 print prepare_data(x, x_syn, y, y_syn, label, maxlen=maxlen,
-                                                n_words_src=n_words_src, bk_for_x=model_options['bk_for_x'],
-                                                bk_for_y=model_options['bk_for_y'], bk_dim=model_options['bk_dim'],
-                                                n_words=n_words)
+                                   n_words_src=n_words_src, bk_for_x=model_options['bk_for_x'],
+                                   bk_for_y=model_options['bk_for_y'], bk_dim=model_options['bk_dim'],
+                                   n_words=n_words)
                 raise
 
             if x is None:
@@ -1432,13 +1433,13 @@ def train(dim_word=100,  # word vector dimensionality
             cost = f_grad_shared(x, x_mask, bk_x, y, y_mask, bk_y, label)
 
             # do the update on parameters
-            #print 'Befor:'
-            #print tparams['ff_logit_W'].get_value()
+            # print 'Befor:'
+            # print tparams['ff_logit_W'].get_value()
             f_update(lrate)
-            #print 'After:'
-            #print tparams['ff_logit_W'].get_value()
-            #update = f_update(lrate)
-            #print update
+            # print 'After:'
+            # print tparams['ff_logit_W'].get_value()
+            # update = f_update(lrate)
+            # print update
 
             ud = time.time() - ud_start
 
@@ -1450,8 +1451,8 @@ def train(dim_word=100,  # word vector dimensionality
 
             # verbose
             if numpy.mod(uidx, dispFreq) == 0:
-                log.info('Epoch: %d Update: %d Cost: %f UD: %f'%(eidx, uidx, cost, ud))
-                #print 'Epoch ', eidx, 'Update ', uidx, 'Cost ', cost, 'UD ', ud
+                log.info('Epoch: %d Update: %d Cost: %f UD: %f' % (eidx, uidx, cost, ud))
+                # print 'Epoch ', eidx, 'Update ', uidx, 'Cost ', cost, 'UD ', ud
 
             # save the best model so far, in addition, save the latest model
             # into a separate file with the iteration number for external eval
@@ -1477,19 +1478,19 @@ def train(dim_word=100,  # word vector dimensionality
             # validate model on validation set and early stop if necessary
             if numpy.mod(uidx, validFreq) == 0:
                 use_noise.set_value(0.)
-                #print 'Here:'
-                #print tparams['ff_logit_W'].get_value()
-                #print unzip(tparams)
+                # print 'Here:'
+                # print tparams['ff_logit_W'].get_value()
+                # print unzip(tparams)
                 valid_errs, valid_acc = pred_probs(f_log_probs, prepare_data,
-                                        model_options, valid)
+                                                   model_options, valid)
                 valid_err = valid_errs.mean()
                 history_errs.append(valid_err)
 
                 test_errs, test_acc = pred_probs(f_log_probs, prepare_data,
-                                        model_options, test)
+                                                 model_options, test)
                 test_err = test_errs.mean()
                 history_accs.append(test_acc)
-                #history_errs.append(valid_err)
+                # history_errs.append(valid_err)
 
                 if uidx == 0 or valid_err <= numpy.array(history_errs).min():
                     best_p = unzip(tparams)
@@ -1516,15 +1517,15 @@ def train(dim_word=100,  # word vector dimensionality
             epochFlag = False
 
         print 'Seen %d samples' % n_samples
-        #test acc after one epoch
+        # test acc after one epoch
         if len(history_accs) > 0:
             epoch_accs.append(history_accs[-1])
-        if len(epoch_accs) > 1 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
-            bad_counter_acc += 1
-            if bad_counter_acc > 1:
-                print 'Early Stop Acc!'
-                estop = True
-                break
+        #if len(epoch_accs) > 1 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
+        #    bad_counter_acc += 1
+        #    if bad_counter_acc > 1:
+        #        print 'Early Stop Acc!'
+        #        estop = True
+        #        break
 
         if estop:
             break
@@ -1534,7 +1535,7 @@ def train(dim_word=100,  # word vector dimensionality
 
     use_noise.set_value(0.)
     test_err, acc = pred_probs(f_log_probs, prepare_data,
-                           model_options, test)
+                               model_options, test)
 
     print 'Test Acc ', acc
 
