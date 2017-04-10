@@ -1131,9 +1131,9 @@ def train(dim_word=100,  # word vector dimensionality
           class_num=3,
           encoder='gru',
           decoder='gru_cond',
-          patience=10,  # early stopping patience
+          patience=100000,  # early stopping patience
           max_epochs=5000,
-          finish_after=10000000,  # finish after this many updates
+          finish_after=10000000000,  # finish after this many updates
           dispFreq=100,
           decay_c=0.,  # L2 regularization penalty
           alpha_c=0.,  # alignment regularization
@@ -1399,9 +1399,9 @@ def train(dim_word=100,  # word vector dimensionality
                         numpy.array(history_errs)[:-patience].min():
                     bad_counter += 1
                     if bad_counter > patience:
-                        print 'Early Stop!'
-                        estop = True
-                        break
+                        print 'loss Early Stop!'
+                        #estop = True
+                        #break
 
                 if numpy.isnan(valid_err):
                     ipdb.set_trace()
@@ -1415,14 +1415,14 @@ def train(dim_word=100,  # word vector dimensionality
                 break
 
         print 'Seen %d samples' % n_samples
-        if len(history_accs) > 0:
-            epoch_accs.append(history_accs[-1])
-        if len(epoch_accs) > 1 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
-            bad_counter_acc += 1
-            if bad_counter_acc > 2:
-                print 'Early Stop Acc!'
-                estop = True
-                break
+        #if len(history_accs) > 0:
+        #    epoch_accs.append(history_accs[-1])
+        #if len(epoch_accs) > 1 and epoch_accs[-1] <= numpy.array(epoch_accs)[:-1].max():
+        #    bad_counter_acc += 1
+        #    if bad_counter_acc > 2:
+        #        print 'acc Early Stop Acc!'
+        #        #estop = True
+        #        break
 
         if estop:
             break

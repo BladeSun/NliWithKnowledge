@@ -18,7 +18,7 @@ def main(dict_path, emb_path, dim):
                 emb[word_dict[l[0]], :] = l[1:]
                 count += 1
     print 'oov num:', num - 3 - count
-    save_name = 'snli_emb_%i' % dim
+    save_name = 'snli_emb_%i_fix' % dim
     with open('%s.pkl'%save_name, 'wb') as f:
         pkl.dump(emb, f)
 
@@ -26,7 +26,7 @@ def main(dict_path, emb_path, dim):
 
 if __name__ == '__main__':
     emb_path = './glove.840B.300d.txt'
-    dict_path = './snli_dict.pkl'
+    dict_path = './snli_dict_fix.pkl'
     dim = 300
     main(dict_path, emb_path, dim)
 

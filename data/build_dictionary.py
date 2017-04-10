@@ -31,7 +31,7 @@ def main():
     for ii, ww in enumerate(sorted_words):
         worddict[ww] = ii+4
 
-    save_name = 'snli_dict'
+    save_name = 'snli_dict_fix'
     with open('%s.pkl'%save_name, 'wb') as f:
         pkl.dump(worddict, f)
 

@@ -153,7 +153,7 @@ class TextIterator:
                 #need fix here!!!!
                 if len(ss) != len(ss_syn) or len(tt) != len(tt_syn):
                     self.countBlank += 1
-                    print self.countBlank
+                    #print self.countBlank
                     #raise Exception, 'orign != syn'
                     continue
 

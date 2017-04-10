@@ -1202,25 +1202,25 @@ def train(dim_word=100,  # word vector dimensionality
           optimizer='rmsprop',
           batch_size=16,
           valid_batch_size=16,
-          saveto='model.npz',
+          saveto='fixmodel.npz',
           validFreq=1000,
           saveFreq=1000,  # save the parameters after every saveFreq updates
           sampleFreq=100,  # generate some samples after every sampleFreq
           train_datasets=[
-              '../data/train_h.tok',
-              '../data/train_t.tok',
+              '../data/train_h_fix.tok',
+              '../data/train_t_fix.tok',
               '../data/train_label.tok',
               '../data/train_syn_h.syntok',
               '../data/train_syn_t.syntok'],
           valid_datasets=[
-              '../data/dev_h.tok',
-              '../data/dev_t.tok',
+              '../data/dev_h_fix.tok',
+              '../data/dev_t_fix.tok',
               '../data/dev_label.tok',
               '../data/dev_syn_h.syntok',
               '../data/dev_syn_t.syntok'],
           test_datasets=[
-              '../data/test_h.tok',
-              '../data/test_t.tok',
+              '../data/test_h_fix.tok',
+              '../data/test_t_fix.tok',
               '../data/test_label.tok',
               '../data/test_syn_h.syntok',
               '../data/test_syn_t.syntok'],
@@ -1231,10 +1231,10 @@ def train(dim_word=100,  # word vector dimensionality
               '../data/check_syn_h.syntok',
               '../data/check_syn_t.syntok'],
           dictionaries=[
-              '../data/snli_dict.pkl',
+              '../data/snli_dict_fix.pkl',
               '../data/bk_dict.pkl'],
           embedings=[
-              '../data/snli_emb_300.pkl'],
+              '../data/snli_emb_300_fix.pkl'],
           bk_dicts=[
               '../data/bk_for_x.pkl',
               '../data/bk_for_y.pkl'],
@@ -1499,8 +1499,8 @@ def train(dim_word=100,  # word vector dimensionality
                         numpy.array(history_errs)[:-patience].min():
                     bad_counter += 1
                     if bad_counter > patience:
-                        print 'Early Stop!'
-                        estop = True
+                        print 'Loss Early Stop!'
+                        #estop = True
                         break
 
                 if numpy.isnan(valid_err):
