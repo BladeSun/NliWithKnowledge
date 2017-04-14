@@ -632,6 +632,9 @@ def init_params(options):
     params['Wemb'] = options['allembs']
     params['op_weights'] = norm_weight(options['op_num'] * options['op_dim'], options['op_dim'])
     params['op_V'] = numpy.random.randn(options['op_num']).astype('float32')
+
+    params['bkW_input'] = norm_weight(options['dim_word'] , 1)
+    params['bkW_op'] = norm_weight(options['op_dim'] , 1)
     # params['Wemb_dec'] = norm_weight(options['n_words'], options['dim_word'])
     params = get_layer('ff')[0](options, params,
                                          prefix='projOp',
@@ -713,22 +716,34 @@ def build_dam(tparams, options):
 
     bk_op = bk_op.reshape([n_samples, n_timesteps_h, n_timesteps_t, options['op_num'] * options['op_dim'],options['op_dim']])
     bk_op = bk_op.dimshuffle(0,1,2,4,3)
+    bk_op = bk_op.reshape([-1, options['op_dim'], options['op_num'] * options['op_dim']])
 
     emb_h_tmp = emb_h.dimshuffle(1,0,'x',2) + tensor.zeros([n_samples,n_timesteps_h,n_timesteps_t,options['dim']])
     emb_h_tmp = emb_h_tmp.reshape([-1, options['dim_word']])
-    emb_h_tmp = get_layer('ff')[1](tparams, emb_h_tmp, options,prefix='projOp', activ='relu')
+    emb_h_tmpp = get_layer('ff')[1](tparams, emb_h_tmp, options,prefix='projOp', activ='relu')
+    bk_hop = tensor.batched_dot(emb_h_tmpp, bk_op)
 
-    bk_op = bk_op.reshape([-1, options['op_dim'], options['op_num'] * options['op_dim']])
     #emb_h_tmp.dimshuffle(0, 'x', 1) * r_hop.reshape [-1, options['op_num'], options['dim']
-    #r_hop = tensor.batched_dot(emb_h_tmp, bk_op)
-    bk_op = tensor.batched_dot(emb_h_tmp, bk_op)
+    #bk_op = tensor.batched_dot(emb_h_tmp, bk_op)
 
     emb_t_tmp = emb_t.dimshuffle(1,'x',0,2) + tensor.zeros([n_samples,n_timesteps_h,n_timesteps_t,options['dim']])
     emb_t_tmp = emb_t_tmp.reshape([-1, options['dim_word']])
-    emb_t_tmp = get_layer('ff')[1](tparams, emb_t_tmp, options,prefix='projOp', activ='relu')
+    emb_t_tmpp = get_layer('ff')[1](tparams, emb_t_tmp, options,prefix='projOp', activ='relu')
+    bk_top = tensor.batched_dot(emb_t_tmpp, bk_op)
 
-    weight_bk = (bk_op.reshape([-1, options['op_num'], options['op_dim']]) * emb_t_tmp.dimshuffle(0, 'x', 1)).sum(2)
+    #bk_hop = tensor.batched_dot(emb_h_tmp, bk_op)
+
+    #weight_bk = (bk_op.reshape([-1, options['op_num'], options['op_dim']]) * emb_t_tmp.dimshuffle(0, 'x', 1)).sum(2)
+    weight_bk = (bk_hop.reshape([-1, options['op_num'], options['op_dim']]) * bk_top.reshape([-1, options['op_num'], options['op_dim']])).sum(2)
     weight_bk = tensor.dot(tparams['op_V'], weight_bk.T)
+    
+    g_h =tensor.dot(emb_h_tmp , tparams['bkW_input'])
+    g_t =tensor.dot(emb_t_tmp , tparams['bkW_input'])
+    g_h_op =tensor.dot(emb_h_tmpp , tparams['bkW_op'])
+    g_t_op =tensor.dot(emb_t_tmpp , tparams['bkW_op'])
+    gate = tensor.nnet.sigmoid(g_h + g_t + g_h_op + g_t_op)
+
+    weight_bk = weight_bk * gate.T
 
     weight_matrix = weight_matrix + weight_bk.reshape([n_samples, n_timesteps_h, n_timesteps_t])
 
@@ -1231,7 +1246,7 @@ def train(dim_word=100,  # word vector dimensionality
           optimizer='rmsprop',
           batch_size=16,
           valid_batch_size=16,
-          saveto='modelOp.npz',
+          saveto='modelOpDouble.npz',
           validFreq=1000,
           saveFreq=1000,  # save the parameters after every saveFreq updates
           sampleFreq=100,  # generate some samples after every sampleFreq
